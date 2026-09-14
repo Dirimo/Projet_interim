@@ -1,0 +1,25 @@
+{
+  "name": "@passerelle/frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Front Nuxt de la plateforme Passerelle",
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "preview": "nuxt preview",
+    "generate": "nuxt generate",
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxt typecheck"
+  },
+  "dependencies": {
+    "@passerelle/shared": "workspace:*",
+    "nuxt": "^4.0.0",
+    "vue": "^3.5.0",
+    "vue-router": "^4.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vue-tsc": "^2.1.0"
+  }
+}

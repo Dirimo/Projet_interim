@@ -1,0 +1,176 @@
+import 'reflect-metadata';
+import { Logger } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
+import { Command } from 'commander';
+import { readFile, writeFile } from 'node:fs/promises';
+import { AppModule } from '../app.module';
+import { FranceTravailClient } from '../donnees-publiques/france-travail.client';
+import { OffresService, ROMES_SECTEUR } from '../donnees-publiques/offres.service';
+
+/**
+ * Outillage en ligne de commande de la chaine de donnees publiques.
+ *
+ * Le contexte Nest est demarre sans serveur HTTP : la CLI reutilise exactement
+ * les services de l'API — meme client, meme nettoyage, meme ecriture. Une
+ * commande qui aurait sa propre copie du nettoyage finirait par en diverger,
+ * et c'est le barometre qui deviendrait faux.
+ */
+async function contexte() {
+  return NestFactory.createApplicationContext(AppModule, {
+    logger: ['error', 'warn', 'log'],
+  });
+}
+
+function listeDepuis(valeur: string): string[] {
+  return valeur
+    .split(',')
+    .map((element) => element.trim().toUpperCase())
+    .filter(Boolean);
+}
+
+function afficherRapport(rapport: {
+  source: string;
+  recues: number;
+  ecartees: number;
+  doublons: number;
+  sansSalaire: number;
+  enregistrees: number;
+  simulation: boolean;
+  offres: { tauxHoraire: number | null }[];
+}): void {
+  const exploitables = rapport.offres.length - rapport.sansSalaire;
+
+  console.log('');
+  console.log(`Source                    ${rapport.source}`);
+  console.log(`Offres recues             ${rapport.recues}`);
+  console.log(`Ecartees (non situables)  ${rapport.ecartees}`);
+  console.log(`Republications fusionnees ${rapport.doublons}`);
+  console.log(`Retenues                  ${rapport.offres.length}`);
+  console.log(`  dont salaire exploitable ${exploitables}`);
+  console.log(`  dont sans salaire        ${rapport.sansSalaire}`);
+  console.log(
+    rapport.simulation
+      ? 'Simulation : rien n a ete ecrit en base.'
+      : `Enregistrees en base      ${rapport.enregistrees}`,
+  );
+  console.log('');
+}
+
+const programme = new Command();
+
+programme
+  .name('passerelle')
+  .description('Outils de collecte et de nettoyage des donnees publiques')
+  .version('0.1.0');
+
+programme
+  .command('importer:offres')
+  .description("Collecte les offres d'interim du secteur, les nettoie et les enregistre")
+  .option('--rome <codes>', 'codes ROME separes par des virgules', listeDepuis, [
+    ...ROMES_SECTEUR,
+  ])
+  .option('--departement <codes>', 'departements separes par des virgules', listeDepuis)
+  .option('--jours <n>', 'ne prendre que les offres creees depuis N jours', Number, 30)
+  .option('--max <n>', "plafond d'offres a rapatrier", Number, 600)
+  .option('--fichier <chemin>', "importer depuis un instantane local au lieu de l'API")
+  .option('--sec', 'tout nettoyer et compter, sans rien ecrire en base', false)
+  .action(async (options) => {
+    const app = await contexte();
+    const offres = app.get(OffresService);
+
+    try {
+      const rapport = options.fichier
+        ? await offres.importerDepuisFichier(
+            await readFile(options.fichier, 'utf8'),
+            options.sec,
+          )
+        : await offres.importerDepuisApi(
+            {
+              romes: options.rome,
+              departements: options.departement,
+              jours: options.jours,
+              max: options.max,
+            },
+            options.sec,
+          );
+
+      afficherRapport(rapport);
+    } finally {
+      await app.close();
+    }
+  });
+
+programme
+  .command('exporter:offres')
+  .description('Enregistre un instantane brut de l API, rejouable hors ligne')
+  .option('--rome <codes>', 'codes ROME separes par des virgules', listeDepuis, [
+    ...ROMES_SECTEUR,
+  ])
+  .option('--departement <codes>', 'departements separes par des virgules', listeDepuis)
+  .option('--jours <n>', 'ne prendre que les offres creees depuis N jours', Number, 30)
+  .option('--max <n>', "plafond d'offres a rapatrier", Number, 600)
+  .requiredOption('--sortie <chemin>', 'fichier JSON a ecrire')
+  .action(async (options) => {
+    const app = await contexte();
+    const client = app.get(FranceTravailClient);
+
+    try {
+      const brutes = await client.rechercher({
+        romes: options.rome,
+        departements: options.departement,
+        jours: options.jours,
+        max: options.max,
+      });
+
+      await writeFile(options.sortie, JSON.stringify({ resultats: brutes }, null, 2), 'utf8');
+      console.log(`\n${brutes.length} offres brutes ecrites dans ${options.sortie}\n`);
+    } finally {
+      await app.close();
+    }
+  });
+
+programme
+  .command('barometre')
+  .description('Affiche le barometre de tension calcule a partir des offres collectees')
+  .option('--jours <n>', 'periode observee', Number, 30)
+  .option('--departement <code>', 'restreindre a un departement')
+  .action(async (options) => {
+    const app = await contexte();
+    const offres = app.get(OffresService);
+
+    try {
+      const barometre = await offres.barometre(options.jours, options.departement);
+
+      console.log('');
+      console.log(
+        `Barometre sur ${barometre.periodeJours} jours` +
+          (barometre.depuisLeCache ? ' (depuis le cache Redis)' : ''),
+      );
+      console.log('');
+      console.log('ROME   Dept  Offres  Postes  Median   Fourchette      Exp.  Sans salaire');
+
+      for (const metier of barometre.metiers) {
+        const median = metier.tauxHoraireMedian?.toFixed(2).padStart(6) ?? '     —';
+        const fourchette =
+          metier.tauxHoraireMin && metier.tauxHoraireMax
+            ? `${metier.tauxHoraireMin.toFixed(2)} - ${metier.tauxHoraireMax.toFixed(2)}`
+            : '—';
+
+        console.log(
+          `${metier.romeCode.padEnd(6)} ${metier.departement.padEnd(5)} ` +
+            `${String(metier.offres).padStart(6)}  ${String(metier.postes).padStart(6)}  ` +
+            `${median}  ${fourchette.padEnd(15)} ${String(metier.partExperienceExigee).padStart(3)}%  ` +
+            `${metier.offresSansSalaire}`,
+        );
+      }
+
+      console.log('');
+    } finally {
+      await app.close();
+    }
+  });
+
+programme.parseAsync(process.argv).catch((erreur: unknown) => {
+  new Logger('CLI').error(erreur instanceof Error ? erreur.message : String(erreur));
+  process.exitCode = 1;
+});

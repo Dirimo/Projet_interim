@@ -1,0 +1,545 @@
+// Schema Passerelle - voir docs/avant-projet.html
+//
+// Trois invariants portes par ce schema :
+//  1. un seul CANDIDAT, avec un tableau `filieres` : beaucoup d'interimaires du
+//     secteur font du domicile ET de l'etablissement, dupliquer la fiche ferait
+//     diverger les disponibilites ;
+//  2. le CLIENT contractuel n'est pas le LIEU d'intervention : un SAAD signe la
+//     mission, l'intervention a lieu chez le beneficiaire ;
+//  3. la convention collective est portee par le CLIENT (principe d'egalite de
+//     traitement avec les salaries de l'entreprise utilisatrice), pas par le candidat.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // L'image postgis/postgis installe ces quatre extensions a la creation de la
+  // base. Les declarer toutes evite que `prisma migrate dev` les voie comme une
+  // derive et propose de reinitialiser la base a chaque migration.
+  extensions = [postgis, postgis_topology, fuzzystrmatch, postgis_tiger_geocoder]
+}
+
+// ---------------------------------------------------------------- enums
+
+enum Filiere {
+  DOMICILE
+  ETABLISSEMENT
+}
+
+enum RoleUtilisateur {
+  ADMIN_AGENCE
+  CHARGE_RECRUTEMENT
+  CLIENT
+  CANDIDAT
+}
+
+enum StatutCandidat {
+  BROUILLON
+  EN_VERIFICATION
+  ACTIF
+  INACTIF
+  ARCHIVE
+}
+
+// Un seul type de client : l'agence ne place que dans des services d'aide et
+// d'accompagnement a domicile. L'enum survit a la reduction parce qu'il porte
+// une information juridique : un SAAD releve de l'article L. 312-1 du CASF.
+enum TypeClient {
+  SAAD
+}
+
+enum TypeLieu {
+  DOMICILE_BENEFICIAIRE
+  ETABLISSEMENT
+}
+
+enum StatutMission {
+  BROUILLON
+  PUBLIEE
+  EN_MATCHING
+  PROPOSEE
+  VALIDEE
+  CONTRACTUALISEE
+  EN_COURS
+  TERMINEE
+  ANNULEE
+  NON_POURVUE
+}
+
+enum StatutProposition {
+  ENVOYEE
+  ACCEPTEE_CANDIDAT
+  REFUSEE_CANDIDAT
+  VALIDEE_CLIENT
+  REFUSEE_CLIENT
+  EXPIREE
+}
+
+enum StatutContrat {
+  A_SIGNER
+  SIGNE
+  DPAE_ENVOYEE
+  ROMPU
+}
+
+enum StatutReleve {
+  SAISI
+  VALIDE_CLIENT
+  CONTESTE
+  EXPORTE
+}
+
+// ---------------------------------------------------------------- agence & acces
+
+model Agence {
+  id        String   @id @default(uuid()) @db.Uuid
+  nom       String
+  ville     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  utilisateurs Utilisateur[]
+  candidats    Candidat[]
+  clients      Client[]
+  missions     Mission[]
+
+  @@map("agence")
+}
+
+model Utilisateur {
+  id           String          @id @default(uuid()) @db.Uuid
+  email        String          @unique
+  motDePasse   String
+  role         RoleUtilisateur
+  actif        Boolean         @default(true)
+  derniereCnx  DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  // Compteur d'echecs consecutifs. Il alimente un ralentissement progressif de la
+  // reponse, pas un verrouillage : bloquer un compte donnerait a un attaquant le
+  // moyen de fermer l'agence a 6h30 en saisissant trois fois un mauvais mot de
+  // passe. Porte par le compte et non par l'IP, car un bourrinage distribue
+  // change d'adresse a chaque essai mais pas de cible.
+  echecsConnexion Int       @default(0)
+  dernierEchecLe  DateTime?
+
+  agenceId   String?   @db.Uuid
+  agence     Agence?   @relation(fields: [agenceId], references: [id], onDelete: SetNull)
+  candidatId String?   @unique @db.Uuid
+  candidat   Candidat? @relation(fields: [candidatId], references: [id], onDelete: SetNull)
+  clientId   String?   @db.Uuid
+  client     Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  jetons JetonRafraichissement[]
+
+  @@index([agenceId, role])
+  @@map("utilisateur")
+}
+
+/// Jeton de rafraichissement : la seule partie revocable de la session.
+///
+/// Le jeton d'acces est un JWT autoportant, donc invalidable uniquement par
+/// expiration. Ce modele apporte ce qui lui manque : une session qu'on peut
+/// couper. Seule une empreinte SHA-256 est stockee - une fuite de la table ne
+/// donne aucun jeton utilisable.
+model JetonRafraichissement {
+  id            String   @id @default(uuid()) @db.Uuid
+  utilisateurId String   @db.Uuid
+  utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+
+  empreinte String   @unique
+  expireLe  DateTime
+  createdAt DateTime @default(now())
+
+  utiliseLe  DateTime?
+  revoqueLe  DateTime?
+  /// Rotation : chaque usage emet un successeur. Rejouer un jeton deja utilise
+  /// signale un vol, et fait tomber toute la chaine (voir auth.service).
+  remplacePar String? @db.Uuid
+
+  /// Racine de la chaine de rotation, pour revoquer une session d'un seul coup.
+  familleId String @db.Uuid
+
+  @@index([utilisateurId, revoqueLe])
+  @@index([familleId])
+  @@map("jeton_rafraichissement")
+}
+
+// ---------------------------------------------------------------- offre : candidats
+
+model Candidat {
+  id        String         @id @default(uuid()) @db.Uuid
+  agenceId  String         @db.Uuid
+  agence    Agence         @relation(fields: [agenceId], references: [id], onDelete: Restrict)
+  nom       String
+  prenom    String
+  email     String         @unique
+  telephone String
+  statut    StatutCandidat @default(BROUILLON)
+
+  // Une ou les deux : c'est le discriminant qui pilote tout le matching.
+  filieres Filiere[]
+
+  adresse    String
+  codePostal String
+  ville      String
+  latitude   Float?
+  longitude  Float?
+  // Colonne PostGIS alimentee par le module de matching (hors client Prisma).
+  geom       Unsupported("geography(Point, 4326)")?
+
+  rayonKm  Int     @default(20)
+  permisB  Boolean @default(false)
+  vehicule Boolean @default(false)
+
+  visiteMedicaleLe  DateTime? @db.Date
+  vaccinationVerifiee Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  utilisateur      Utilisateur?
+  qualifications   QualificationCandidat[]
+  disponibilites   Disponibilite[]
+  indisponibilites Indisponibilite[]
+  propositions     Proposition[]
+  contrats         Contrat[]
+  missions         Mission[]
+  releves          ReleveHeures[]
+
+  @@index([agenceId, statut])
+  @@index([codePostal])
+  @@map("candidat")
+}
+
+model Qualification {
+  id       String    @id @default(uuid()) @db.Uuid
+  code     String    @unique
+  libelle  String
+  filieres Filiere[]
+
+  candidats QualificationCandidat[]
+  missions  Mission[]
+
+  @@map("qualification")
+}
+
+model QualificationCandidat {
+  id              String        @id @default(uuid()) @db.Uuid
+  candidatId      String        @db.Uuid
+  candidat        Candidat      @relation(fields: [candidatId], references: [id], onDelete: Cascade)
+  qualificationId String        @db.Uuid
+  qualification   Qualification @relation(fields: [qualificationId], references: [id], onDelete: Restrict)
+
+  obtenueLe       DateTime? @db.Date
+  expireLe        DateTime? @db.Date
+  justificatifUrl String?
+  verifieeLe      DateTime?
+  verifieePar     String?
+
+  @@unique([candidatId, qualificationId])
+  @@map("qualification_candidat")
+}
+
+model Disponibilite {
+  id         String   @id @default(uuid()) @db.Uuid
+  candidatId String   @db.Uuid
+  candidat   Candidat @relation(fields: [candidatId], references: [id], onDelete: Cascade)
+
+  jourSemaine Int // 1 = lundi ... 7 = dimanche
+  heureDebut  String // "07:00"
+  heureFin    String // "12:30"
+  recurrente  Boolean   @default(true)
+  valideDu    DateTime? @db.Date
+  valideAu    DateTime? @db.Date
+
+  @@index([candidatId, jourSemaine])
+  @@map("disponibilite")
+}
+
+model Indisponibilite {
+  id         String   @id @default(uuid()) @db.Uuid
+  candidatId String   @db.Uuid
+  candidat   Candidat @relation(fields: [candidatId], references: [id], onDelete: Cascade)
+  du         DateTime @db.Date
+  au         DateTime @db.Date
+  motif      String?
+
+  @@index([candidatId, du, au])
+  @@map("indisponibilite")
+}
+
+// ---------------------------------------------------------------- demande : clients & lieux
+
+model Client {
+  id            String     @id @default(uuid()) @db.Uuid
+  agenceId      String     @db.Uuid
+  agence        Agence     @relation(fields: [agenceId], references: [id], onDelete: Restrict)
+  raisonSociale String
+  siret         String     @unique
+  type          TypeClient @default(SAAD)
+
+  // Sert a calculer le salaire de reference de l'interimaire : c'est la
+  // convention de l'entreprise utilisatrice qui s'applique, pas celle du candidat.
+  conventionCollective String?
+  idcc                 String?
+
+  contactNom   String?
+  contactEmail String?
+  contactTel   String?
+  actif        Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lieux        LieuIntervention[]
+  missions     Mission[]
+  factures     Facture[]
+  utilisateurs Utilisateur[]
+
+  @@index([agenceId, actif])
+  @@map("client")
+}
+
+model LieuIntervention {
+  id       String   @id @default(uuid()) @db.Uuid
+  clientId String   @db.Uuid
+  client   Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type     TypeLieu
+  libelle  String
+
+  adresse    String
+  codePostal String
+  ville      String
+  latitude   Float?
+  longitude  Float?
+  geom       Unsupported("geography(Point, 4326)")?
+
+  etage     String?
+  codeAcces String?
+  consignes String?
+  // Aucune donnee de sante : uniquement une reference pseudonymisee.
+  beneficiaireRef String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  missions Mission[]
+
+  @@index([clientId, type])
+  @@map("lieu_intervention")
+}
+
+// ---------------------------------------------------------------- mission & aval
+
+model Mission {
+  id        String @id @default(uuid()) @db.Uuid
+  reference String @unique
+  agenceId  String @db.Uuid
+  agence    Agence @relation(fields: [agenceId], references: [id], onDelete: Restrict)
+
+  clientId String           @db.Uuid
+  client   Client           @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  lieuId   String           @db.Uuid
+  lieu     LieuIntervention @relation(fields: [lieuId], references: [id], onDelete: Restrict)
+
+  filiere                Filiere
+  qualificationRequiseId String        @db.Uuid
+  qualificationRequise   Qualification @relation(fields: [qualificationRequiseId], references: [id], onDelete: Restrict)
+
+  statut      StatutMission @default(BROUILLON)
+  dateDebut   DateTime      @db.Date
+  dateFin     DateTime      @db.Date
+  heureDebut  String
+  heureFin    String
+  travailNuit Boolean       @default(false)
+
+  motifRecours String
+  description  String?
+  tauxHoraire  Decimal? @db.Decimal(8, 4)
+  coefficient  Decimal? @db.Decimal(5, 3)
+
+  candidatRetenuId String?   @db.Uuid
+  candidatRetenu   Candidat? @relation(fields: [candidatRetenuId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  propositions Proposition[]
+  contrat      Contrat?
+  releves      ReleveHeures[]
+  evenements   EvenementMission[]
+
+  @@index([agenceId, statut])
+  @@index([dateDebut])
+  @@index([clientId, statut])
+  @@map("mission")
+}
+
+model Proposition {
+  id         String   @id @default(uuid()) @db.Uuid
+  missionId  String   @db.Uuid
+  mission    Mission  @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  candidatId String   @db.Uuid
+  candidat   Candidat @relation(fields: [candidatId], references: [id], onDelete: Cascade)
+
+  score Decimal? @db.Decimal(5, 2)
+  // Detail des composantes du score : le charge de recrutement doit pouvoir
+  // comprendre pourquoi un candidat est troisieme et pas premier.
+  detailScore Json?
+
+  statut     StatutProposition @default(ENVOYEE)
+  envoyeeLe  DateTime          @default(now())
+  repondueLe DateTime?
+  expireLe   DateTime?
+  motifRefus String?
+
+  @@unique([missionId, candidatId])
+  @@index([candidatId, statut])
+  @@map("proposition")
+}
+
+model Contrat {
+  id         String   @id @default(uuid()) @db.Uuid
+  missionId  String   @unique @db.Uuid
+  mission    Mission  @relation(fields: [missionId], references: [id], onDelete: Restrict)
+  candidatId String   @db.Uuid
+  candidat   Candidat @relation(fields: [candidatId], references: [id], onDelete: Restrict)
+
+  numero        String        @unique
+  motifRecours  String
+  dateDebut     DateTime      @db.Date
+  dateFin       DateTime      @db.Date
+  statut        StatutContrat @default(A_SIGNER)
+  signeLe       DateTime?
+  documentUrl   String?
+  dpaeEnvoyeeLe DateTime?
+  dpaeReference String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("contrat")
+}
+
+model ReleveHeures {
+  id         String   @id @default(uuid()) @db.Uuid
+  missionId  String   @db.Uuid
+  mission    Mission  @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  candidatId String   @db.Uuid
+  candidat   Candidat @relation(fields: [candidatId], references: [id], onDelete: Restrict)
+
+  semaineDu      DateTime @db.Date
+  heuresNormales Decimal  @default(0) @db.Decimal(6, 2)
+  heuresNuit     Decimal  @default(0) @db.Decimal(6, 2)
+  heuresDimanche Decimal  @default(0) @db.Decimal(6, 2)
+  heuresFeriees  Decimal  @default(0) @db.Decimal(6, 2)
+  kilometres     Decimal  @default(0) @db.Decimal(7, 2)
+
+  statut      StatutReleve @default(SAISI)
+  saisiLe     DateTime     @default(now())
+  valideLe    DateTime?
+  validePar   String?
+  commentaire String?
+
+  factureId String?  @db.Uuid
+  facture   Facture? @relation(fields: [factureId], references: [id], onDelete: SetNull)
+
+  @@unique([missionId, semaineDu])
+  @@index([statut])
+  @@map("releve_heures")
+}
+
+model Facture {
+  id       String @id @default(uuid()) @db.Uuid
+  numero   String @unique
+  clientId String @db.Uuid
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  periodeDebut DateTime @db.Date
+  periodeFin   DateTime @db.Date
+  montantHT    Decimal  @default(0) @db.Decimal(10, 2)
+  tauxTva      Decimal  @default(20) @db.Decimal(5, 2)
+  montantTTC   Decimal  @default(0) @db.Decimal(10, 2)
+  emiseLe      DateTime?
+  payeeLe      DateTime?
+
+  createdAt DateTime @default(now())
+
+  releves ReleveHeures[]
+
+  @@index([clientId, periodeDebut])
+  @@map("facture")
+}
+
+/// Journal immuable : c'est ce qu'on ressort en cas de litige sur une mission.
+model EvenementMission {
+  id        String  @id @default(uuid()) @db.Uuid
+  missionId String  @db.Uuid
+  mission   Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  type       String
+  auteurId   String?          @db.Uuid
+  auteurRole RoleUtilisateur?
+  donnees    Json?
+  createdAt  DateTime         @default(now())
+
+  @@index([missionId, createdAt])
+  @@map("evenement_mission")
+}
+
+// ---------------------------------------------------------------- donnees publiques
+
+/// Offre d'interim collectee sur une source publique, apres nettoyage.
+///
+/// On conserve la ligne nettoyee plutot qu'un simple agregat : le barometre se
+/// recalcule sans rappeler l'API, et surtout le nettoyage reste auditable. Le
+/// libelle de salaire d'origine est garde a cote de la valeur normalisee, c'est
+/// la seule facon de verifier une conversion qui parait fausse.
+model OffreCollectee {
+  /// Identifiant de l'offre chez la source : il porte l'idempotence de l'import.
+  id     String @id
+  source String @default("FRANCE_TRAVAIL")
+
+  romeCode    String
+  romeLibelle String
+
+  /// Tel que saisi par l'employeur ("Aide soignant (F/H)").
+  intitule String
+  /// Ramene a l'appellation du referentiel ROME, pour pouvoir regrouper.
+  intituleNormalise String
+  entreprise        String?
+
+  departement String
+  commune     String
+  codePostal  String
+  latitude    Float?
+  longitude   Float?
+
+  /// Ramene a l'heure, quelle que soit la base annoncee. Null quand le libelle
+  /// n'est pas exploitable : mieux vaut une absence qu'un chiffre invente.
+  tauxHoraire  Decimal? @db.Decimal(8, 4)
+  /// Libelle d'origine, conserve pour l'audit de la conversion.
+  salaireLibelle String?
+
+  experienceExigee Boolean @default(false)
+  nombrePostes     Int     @default(1)
+
+  publieeLe   DateTime
+  collecteeLe DateTime @default(now())
+
+  /// Signature employeur + intitule + commune : les agences republient la meme
+  /// offre sous plusieurs identifiants, et les compter deux fois gonflerait la
+  /// tension mesuree.
+  empreinte String
+
+  @@index([romeCode, departement])
+  @@index([publieeLe])
+  @@index([empreinte])
+  @@map("offre_collectee")
+}

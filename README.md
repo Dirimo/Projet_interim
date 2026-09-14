@@ -1,1 +1,506 @@
-# Projet_interim
+# Relève
+
+Agence d'intérim numérique pour l'aide à domicile.
+
+L'agence place des intérimaires — auxiliaires de vie, aides-soignants, AES — chez des **services
+d'aide et d'accompagnement à domicile (SAAD)** qui ont un besoin de remplacement, souvent à très
+court terme. La plateforme remplace le tableur et le téléphone : vivier de candidats, référentiel
+client, dépôt de besoin, matching, contractualisation, relevés d'heures.
+
+Le SAAD est le **seul** type de client : `TypeClient` ne porte qu'une valeur, les particuliers
+employeurs sont hors périmètre. Face à Hublo, qui vend un outil de recrutement, et à Mediflash, qui
+contourne le salariat, la différenciation tient dans un vrai contrat de mission d'intérim —
+l'analyse concurrentielle est dans
+[`docs/analyse-de-marche.html`](docs/analyse-de-marche.html).
+
+---
+
+## État d'avancement
+
+Le projet est un **POC de onze jours**. Deux sont consommés, neuf restent.
+
+| Jalon                                      | Périmètre                                                                            | État                        |
+| ------------------------------------------ | ------------------------------------------------------------------------------------ | --------------------------- |
+| **J1–J2 — Socle et vivier**                | Monorepo, authentification et rôles, référentiels, fiches candidats, back-office     | **Livré**, 140 tests        |
+| J3–J5 — Comptes, mission, profil           | Inscription entreprise et intérimaire **faite**, reste création de mission et profil | En cours · 7 j·dev          |
+| J5–J7 — Données publiques et matching      | Import France Travail, baromètre et cache Redis **faits**, reste le matching         | En cours · 7 j·dev          |
+| J7–J9 — Tableau de bord, SEO, no-code, conformité | Trois états de mission, pages publiques, n8n, RGAA / RGESN / RGPD             | À faire · 8 j·dev           |
+| J10–J11 — Tests, livrables, soutenance     | Couverture transmise, étude de marché, chiffrage réel, pitch                         | À faire · 4 j·dev           |
+
+**26 j·dev pour 27 disponibles** à trois personnes : la marge tient dans une journée. Le chiffrage
+par fonctionnalité, le plan de repli et les livrables datés sont dans le cahier des charges figé à
+J+2, qui sert de référence pour l'écart entre estimé et réel.
+
+Le schéma de base couvre déjà l'ensemble du produit cible (missions, propositions, contrats,
+relevés, factures) : les tables existent, mais l'API n'expose pour l'instant que le socle.
+
+---
+
+## Stack
+
+| Couche       | Choix                                                                |
+| ------------ | -------------------------------------------------------------------- |
+| Monorepo     | pnpm workspaces, TypeScript strict                                   |
+| API          | NestJS 11, Prisma 6, Zod 4, Swagger                                  |
+| Base         | PostgreSQL 16 + PostGIS (le géomatching candidat → lieu en dépendra) |
+| File de jobs | Redis 7 (prévu pour BullMQ : matching différé, relances)             |
+| Front        | Nuxt 4, Vue 3, rendu serveur                                         |
+| Auth         | JWT signé HS256, mots de passe en Argon2id                           |
+| Design       | Figma `9pCZmDqcx6nuuMRoYdLmNH`, transposé en tokens CSS              |
+
+`shared` est le point d'articulation : les schémas Zod y sont écrits **une seule fois**
+et servent à la fois à valider les entrées de l'API et les formulaires du front. Le package ne
+dépend pas de Prisma, pour rester importable par le navigateur.
+
+---
+
+## Démarrage
+
+Prérequis : **Node ≥ 22**, **pnpm 12**, **Docker**.
+
+```bash
+pnpm install                 # installe le workspace
+cp .env.example backend/.env
+
+pnpm infra:up                # PostgreSQL (5434) + Redis (6380)
+pnpm db:migrate              # applique la migration
+pnpm db:seed                 # jeu de données de démonstration
+
+pnpm dev                     # API sur :3001, front sur :3000
+```
+
+```bash
+pnpm test                    # 83 tests : contrats + intégration API
+```
+
+La base d'intégration (`passerelle_test`) est créée et migrée automatiquement au
+premier lancement, puis vidée à chaque suite. Elle est distincte de la base de
+développement.
+
+Documentation de l'API générée : <http://localhost:3001/api/docs>.
+
+Les ports **5434** et **6380** sont décalés volontairement : 5432, 5433 et 6379 sont souvent déjà
+pris sur un poste de développement (Postgres local, WSL).
+
+### Comptes de démonstration
+
+Mot de passe commun : `Passerelle2026!`. Relancer `pnpm db:seed` réécrit les mots de passe, c'est
+le moyen le plus simple de récupérer un accès en local.
+
+| Adresse                       | Rôle                    | Rattachement             |
+| ----------------------------- | ----------------------- | ------------------------ |
+| `admin@passerelle.example`    | Administrateur d'agence | Agence pilote            |
+| `charge@passerelle.example`   | Chargé de recrutement   | Agence pilote            |
+| `secteur@les-tilleuls.example` | Client                 | Les Tilleuls (SAAD)      |
+| `sophie.marchand@example.org` | Candidat                | Fiche de Sophie Marchand |
+
+Les deux derniers n'ont pas encore d'écran : leurs espaces arrivent aux lots 2 et 3. Leur jeton
+porte déjà le bon rattachement.
+
+---
+
+## Données publiques
+
+La plateforme consomme les offres d'intérim publiées sur **France Travail** pour les métiers du
+secteur (codes ROME `J1501` aide-soignant, `K1302` assistance auprès d'adultes, `K1304` services
+domestiques), et en tire un **baromètre de tension** par métier et par département.
+
+```bash
+# Collecte, nettoyage et enregistrement
+pnpm cli importer:offres --jours 30 --departement 44,85,49
+
+# Tout nettoyer et compter, sans rien écrire
+pnpm cli importer:offres --jours 30 --sec
+
+# Rejouer l'instantané livré avec le dépôt, sans réseau ni identifiants
+pnpm cli importer:offres --fichier donnees/offres-echantillon.json
+
+# Enregistrer un nouvel instantané brut
+pnpm cli exporter:offres --jours 30 --sortie donnees/instantane.json
+
+# Afficher le baromètre
+pnpm cli barometre --jours 30 --departement 44
+```
+
+Les identifiants se créent sur [francetravail.io](https://francetravail.io) (application + souscription
+à « Offres d'emploi v2 ») et se renseignent dans `backend/.env`. Sans eux, seul l'import par fichier
+fonctionne.
+
+### Ce que fait le nettoyage
+
+La donnée brute n'est pas exploitable telle quelle. Sur un échantillon réel de 600 offres :
+
+| Étape | Effet mesuré |
+| ----- | ------------ |
+| Écartées faute de lieu exploitable | 5 offres |
+| Républications fusionnées | 97 offres, soit 16 % |
+| **Retenues** | **498** |
+| dont salaire exploitable | 264 |
+| dont sans salaire annoncé | 234 |
+
+- **Salaires** : huit formes de libellé coexistent (`Horaire de 15.0 Euros`,
+  `Mensuel de 1800.0 Euros à 2000.0 Euros sur 12.0 mois`, `Annuel de 24000.0 Euros`, suivies parfois
+  d'un commentaire libre). Tout est ramené à un taux horaire ; sur une fourchette on prend le milieu.
+  Un libellé illisible donne `null`, jamais une valeur inventée.
+- **Dédoublonnage** : les agences republient la même offre sous un nouvel identifiant. L'empreinte
+  (métier + intitulé normalisé + employeur + commune) les fusionne, sinon la tension mesurée serait
+  gonflée de 16 %.
+- **Intitulés** : « Aide soignant (F/H) », « AIDE-SOIGNANT H/F - URGENT » sont ramenés à
+  l'appellation du référentiel ROME, seule chaîne stable sur laquelle regrouper.
+- **Lieux** : le département est tiré du libellé (`85 - Chaize-Giraud`), avec repli sur le code
+  postal, et trois chiffres conservés pour l'outre-mer.
+
+Ces règles sont des fonctions pures, sans base ni réseau, couvertes par 21 tests unitaires.
+
+### Limite à énoncer
+
+La médiane ne porte que sur les offres qui **annoncent** une rémunération, soit un peu plus de la
+moitié. Le baromètre expose `offresSansSalaire` pour que la page le dise, plutôt que d'afficher un
+chiffre qui aurait l'air complet.
+
+---
+
+## Design
+
+Les maquettes vivent dans le fichier Figma `9pCZmDqcx6nuuMRoYdLmNH`. Le fichier **ne déclare
+aucune variable Figma** : les couleurs y sont des hex posés à la main sur les écrans. Elles ont
+donc été relevées et regroupées dans `frontend/app/assets/css/main.css`, qui devient la seule
+source de vérité côté code.
+
+| Ce que le Figma donne | Ce que le code en fait                                              |
+| --------------------- | ------------------------------------------------------------------- |
+| Couleurs des écrans   | Tokens `--ground`, `--surface`, `--ink`, `--dom`, `--eta`…          |
+| Rayons                | `--r-champ` 12px, `--r-marque` 13px, `--r-tuile` 14px, `--r-carte` 16px |
+| Icônes                | SVG exportés, inlinés par `AppIcon.vue` avec `currentColor`          |
+| Cadre mobile 402 px   | Layout `onboarding`, centré plutôt qu'étiré sur grand écran          |
+
+Les icônes sont **inlinées** et non chargées en `<img>` : une balise image ne se recolore pas, et
+le même tracé doit servir la puce verte d'un choix sélectionné et la puce grise d'un autre.
+
+**Le thème sombre n'existe pas dans le Figma.** Les teintes sombres de `main.css` sont une
+transposition des mêmes hues, faite pour que les écrans déjà codés restent lisibles. À faire
+valider — ou à faire dessiner.
+
+---
+
+## Structure du dépôt
+
+Trois paquets à la racine : le serveur, le client, et ce qu'ils partagent.
+
+```
+backend/                          API NestJS
+  donnees/
+    offres-echantillon.json       102 offres réelles, rejouables sans réseau
+  prisma/
+    schema.prisma                 modèle complet du produit + 3 invariants métier
+    migrations/                   socle, session révocable, offres, clients SAAD
+    seed.ts                       agence, qualifications, SAAD, candidats, comptes
+  src/
+    auth/                         authentification, rôles, sessions, mots de passe
+      auth.decorateurs.ts         @Public, @Roles, @UtilisateurCourant, @AgenceCourante
+      jwt-auth.guard.ts           garde globale : fermé par défaut
+      roles.guard.ts              contrôle de rôle
+      sessions.service.ts         jetons de rafraîchissement, rotation, révocation
+      inscriptions.service.ts     auto-inscription entreprise et intérimaire
+      mots-de-passe.ts            Argon2id
+    candidats/                    vivier : fiche, qualifications, disponibilités
+    clients/                      clients SAAD et lieux d'intervention
+    donnees-publiques/            France Travail : collecte, nettoyage, baromètre
+      france-travail.client.ts    OAuth2 et pagination de l'API Offres d'emploi
+      normalisation.ts            salaires et dédoublonnage (pur, testé sans base)
+      offres.service.ts           import, médianes, taux suggéré
+      cache.service.ts            Redis, namespacé par base, dégradation propre
+      tension.controller.ts       GET /api/tension et /api/tension/suggestion
+    cli/main.ts                   importer:offres, exporter:offres, barometre
+    qualifications/               référentiel partagé
+    utilisateurs/                 gestion des comptes
+    common/
+      zod-validation.pipe.ts      valide avec les schémas de @passerelle/shared
+    health/                       sonde /api/sante
+  test/                           117 tests d'intégration
+    fixtures.ts                   deux agences symétriques, app de test
+    cloisonnement.spec.ts         étanchéité entre agences
+    roles.spec.ts                 gardes de rôle et routes publiques
+    inscription.spec.ts           parcours des deux profils, permissions
+    disponibilites.spec.ts        chevauchements, travail de nuit
+    donnees-publiques.spec.ts     import, médianes, exposition API
+    normalisation.spec.ts         salaires et empreintes, sans base ni réseau
+    comptes.spec.ts               garde-fous d'administration
+    sessions.spec.ts              rotation, rejeu, révocation
+    debit.spec.ts                 limitation de débit
+
+frontend/                         Front Nuxt
+  server/                         Nitro : le navigateur ne voit jamais l'API
+    middleware/session.ts         rafraîchit la session avant tout traitement
+    routes/bff/[...chemin].ts     relais authentifié vers l'API
+    routes/bff/auth/              connexion, déconnexion, inscription
+    utils/session.ts              cookies httpOnly, rafraîchissement mutualisé
+  app/
+    assets/
+      css/main.css                tokens du Figma : couleurs, rayons, familles
+      icons/*.svg                 exports Figma, recolorés par currentColor
+    components/AppIcon.vue        inline les tracés pour qu'ils suivent la couleur
+    layouts/
+      default.vue                 coque agence : en-tête, menu selon le rôle
+      onboarding.vue              cadre 402 px des écrans issus des maquettes
+    composables/
+      useSession.ts               identité connectée (aucun jeton côté page)
+      useApi.ts                   appel via le relais /bff
+    middleware/
+      auth.global.ts              tout est fermé sauf liste blanche
+    pages/
+      bienvenue.vue               splash des maquettes, enchaîne vers /connexion
+      connexion.vue
+      inscription/                choix du parcours, entreprise, intérimaire
+      index.vue                   vivier candidats
+      candidats/[id].vue          fiche candidat complète
+      clients/index.vue           liste des clients
+      clients/[id].vue            fiche client et ses lieux
+      tension.vue                 baromètre du marché, données France Travail
+      mon-espace.vue              espace des profils externes
+      comptes.vue                 administration des accès
+      mon-compte.vue              changement de son mot de passe
+
+shared/                           @passerelle/shared — contrat API ↔ front
+  src/
+    enums.ts                      énumérations et libellés d'affichage
+    motifs.ts                     expressions régulières de saisie
+    siret.ts                      validation SIRET (14 chiffres + clé de Luhn)
+    auth.ts, utilisateur.ts, inscription.ts
+    candidat.ts, disponibilite.ts
+    client.ts, lieu.ts, qualification.ts
+    tension.ts                    baromètre et suggestion de taux
+    pagination.ts
+  test/                           23 tests unitaires des règles partagées
+
+docs/
+  analyse-de-marche.html          concurrence, positionnement, proposition de valeur
+  questions-a-trancher.md         décisions en attente, par échéance
+docker-compose.yml                PostgreSQL + PostGIS, Redis
+```
+
+---
+
+## Modèle de données : les trois invariants
+
+Le schéma porte trois décisions structurantes, commentées dans `schema.prisma`.
+
+**1. Un seul candidat, avec un tableau `filieres`.** Beaucoup d'intérimaires du secteur font du
+domicile **et** de l'établissement. Dupliquer la fiche ferait diverger les disponibilités — le pire
+bug possible ici. Le filtrage se fait donc avec `has` et jamais avec une égalité.
+
+**2. Le client contractuel n'est pas le lieu d'intervention.** Un SAAD signe la mission ;
+l'intervention a lieu chez le bénéficiaire. `Client` et `LieuIntervention` sont deux modèles
+distincts, et le client n'a pas d'adresse propre.
+
+**3. La convention collective est portée par le client.** Principe d'égalité de traitement avec les
+salariés de l'entreprise utilisatrice : c'est sa convention qui fixe le salaire de référence de
+l'intérimaire, pas celle du candidat.
+
+### RGPD
+
+Le secteur concentre des données sensibles. La règle de conception est de **ne pas collecter ce
+dont la mission n'a pas besoin** :
+
+- le bénéficiaire n'est jamais nommé — `LieuIntervention.beneficiaireRef` est une référence
+  pseudonymisée (`BEN-0147`) ;
+- les consignes d'un lieu servent à l'accès au logement, pas à décrire une pathologie ;
+- l'aptitude du candidat se résume à une date de visite médicale et deux booléens. La plateforme a
+  besoin de savoir si quelqu'un est déployable, pas pourquoi. Aucun motif, aucun document médical.
+
+---
+
+## Sécurité
+
+**Fermé par défaut.** `JwtAuthGuard` est enregistrée en garde globale : toute route exige un jeton
+valide tant qu'elle n'est pas explicitement marquée `@Public()`. Une route ajoutée sans y penser est
+donc protégée, pas ouverte. Seules `POST /api/auth/connexion` et `GET /api/sante` sont publiques.
+
+**Cloisonnement multi-agence.** Le décorateur `@AgenceCourante()` extrait l'agence du jeton ; les
+services la reçoivent en paramètre obligatoire. Un enregistrement d'une autre agence répond **404 et
+non 403** : on ne confirme pas son existence. Les comptes externes (client, candidat) tiennent leur
+périmètre de leur rattachement plutôt que d'une colonne `agenceId` dupliquée, qui deviendrait fausse
+en silence si un client changeait d'agence.
+
+**Rôles.** `@Roles(...)` filtre par rôle ; sans décorateur, tout compte authentifié passe.
+Le back-office (`ADMIN_AGENCE`, `CHARGE_RECRUTEMENT`) voit le vivier et les clients ; seul
+`ADMIN_AGENCE` gère les accès ; la lecture du référentiel de qualifications est ouverte à tous les
+comptes authentifiés, parce qu'un candidat et un client en ont besoin pour lire une mission.
+
+**Mots de passe.** Argon2id. Douze caractères minimum à la création — longueur plutôt que règles de
+complexité, conformément aux recommandations ANSSI/CNIL. Une empreinte leurre est vérifiée quand
+l'e-mail est inconnu, pour qu'une réponse instantanée ne révèle pas l'absence de compte. Un compte
+désactivé et un mot de passe faux renvoient le même message.
+
+**Session révocable.** Le JWT d'accès dure 15 minutes et n'est pas annulable ; c'est un jeton de
+rafraîchissement opaque, stocké sous forme d'empreinte SHA-256, qui porte la session (12 heures par
+défaut). Il est à usage unique et tourne à chaque échange. Rejouer un jeton déjà consommé au-delà
+d'un sursis de 30 secondes est traité comme un vol : toute la chaîne est révoquée. Le sursis existe
+parce qu'un chargement de page lance plusieurs requêtes, et que celle qui arrive juste après la
+rotation porte encore l'ancien jeton sans que personne ne l'ait volé.
+
+Désactiver un compte, réinitialiser ou changer un mot de passe révoque toutes ses sessions — y
+compris celle qui fait la demande, sans quoi la mesure ne fermerait pas la session d'un voleur.
+
+**Aucun jeton côté navigateur.** Les deux jetons vivent dans des cookies `httpOnly` que seul Nitro
+lit ; la page appelle `/bff/**` sur son propre domaine et le relais compose l'en-tête
+`Authorization`. Une faille XSS n'a donc rien à voler, et l'API n'a pas besoin d'ouvrir CORS au
+navigateur. Le rafraîchissement est mutualisé entre requêtes concurrentes, pour ne pas déclencher la
+détection de rejeu décrite plus haut.
+
+**Bourrinage.** Dix tentatives de connexion par minute et par adresse. Au-delà de cinq échecs
+consécutifs sur un même compte, la réponse est ralentie de façon exponentielle jusqu'à cinq
+secondes, et le compteur s'oublie après quinze minutes sans échec. Délibérément pas un verrouillage :
+bloquer un compte donnerait à un attaquant le moyen de fermer l'agence à 6 h 30, et annoncer « compte
+verrouillé » trahirait son existence.
+
+**Garde-fous d'administration.** Un administrateur ne peut ni se désactiver, ni changer son propre
+rôle ; on refuse de retirer les droits du dernier administrateur actif d'une agence ; le rôle d'un
+compte client ou candidat ne se change pas, ce serait une escalade de privilèges déguisée.
+
+---
+
+## Règles métier appliquées
+
+| Règle                                                            | Où                           | Pourquoi                                                                                                       |
+| ---------------------------------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| SIRET : 14 chiffres **et** clé de Luhn                           | `contracts/siret.ts`         | Le SIRET part dans la DPAE et sur la facture ; une coquille se paie en rejet administratif                     |
+| Le SIRET n'est pas modifiable                                    | `clientUpdateSchema`         | Un autre SIRET, c'est une autre entité juridique — donc un autre client                                        |
+| Pas de suppression de client, seulement `actif: false`           | `clients.service.ts`         | Un client porte des missions, contrats et factures                                                             |
+| Disponibilités : aucun chevauchement                             | `contracts/disponibilite.ts` | Deux créneaux qui se recouvrent feraient compter deux fois le même intérimaire au matching                     |
+| Un créneau dont la fin précède le début traverse minuit          | idem                         | 20:00–07:00 est une nuit en établissement, pas une faute de frappe                                             |
+| Le planning hebdomadaire se remplace en bloc                     | `PUT /disponibilites`        | Le chevauchement se vérifie sur l'ensemble ; une édition ligne à ligne ouvrirait une course entre deux onglets |
+| Passer `ACTIF` exige une qualification vérifiée et non expirée   | `candidats.service.ts`       | C'est ce statut qui rend le candidat proposable sur une mission                                                |
+| Retirer la dernière qualification vérifiée d'un actif est refusé | idem                         | Mieux vaut refuser que désactiver le candidat dans son dos                                                     |
+
+La règle sur le statut `ACTIF` est une décision d'implémentation, pas une exigence du cahier des
+charges : si l'agence veut pouvoir activer sans justificatif, elle se retire en deux lignes dans
+`candidats.service.ts`.
+
+---
+
+## API
+
+Base : `http://localhost:3001/api`. Toutes les routes sauf mention contraire exigent
+`Authorization: Bearer <jeton>`.
+
+### Authentification
+
+| Méthode | Route                | Accès                                    |
+| ------- | -------------------- | ---------------------------------------- |
+| `POST`  | `/auth/connexion`    | public                                   |
+| `POST`  | `/auth/rafraichir`   | public — porteur du jeton de session     |
+| `POST`  | `/auth/deconnexion`  | public — porteur du jeton de session     |
+| `GET`   | `/auth/moi`          | authentifié                              |
+| `POST`  | `/auth/mot-de-passe` | authentifié — changement par l'intéressé |
+| `GET`   | `/sante`             | public                                   |
+
+### Candidats
+
+| Méthode  | Route                                                | Accès       |
+| -------- | ---------------------------------------------------- | ----------- |
+| `GET`    | `/candidats`                                         | back-office |
+| `GET`    | `/candidats/:id`                                     | back-office |
+| `POST`   | `/candidats`                                         | back-office |
+| `PATCH`  | `/candidats/:id`                                     | back-office |
+| `POST`   | `/candidats/:id/qualifications`                      | back-office |
+| `PATCH`  | `/candidats/:id/qualifications/:qualificationId`     | back-office |
+| `DELETE` | `/candidats/:id/qualifications/:qualificationId`     | back-office |
+| `PUT`    | `/candidats/:id/disponibilites`                      | back-office |
+| `POST`   | `/candidats/:id/indisponibilites`                    | back-office |
+| `DELETE` | `/candidats/:id/indisponibilites/:indisponibiliteId` | back-office |
+
+### Clients et lieux
+
+| Méthode | Route                        | Accès       |
+| ------- | ---------------------------- | ----------- |
+| `GET`   | `/clients`                   | back-office |
+| `GET`   | `/clients/:id`               | back-office |
+| `POST`  | `/clients`                   | back-office |
+| `PATCH` | `/clients/:id`               | back-office |
+| `GET`   | `/clients/:id/lieux`         | back-office |
+| `POST`  | `/clients/:id/lieux`         | back-office |
+| `PATCH` | `/clients/:id/lieux/:lieuId` | back-office |
+
+### Référentiel et comptes
+
+| Méthode | Route                            | Accès          |
+| ------- | -------------------------------- | -------------- |
+| `GET`   | `/qualifications`                | authentifié    |
+| `POST`  | `/qualifications`                | administrateur |
+| `GET`   | `/utilisateurs`                  | administrateur |
+| `POST`  | `/utilisateurs`                  | administrateur |
+| `PATCH` | `/utilisateurs/:id`              | administrateur |
+| `POST`  | `/utilisateurs/:id/mot-de-passe` | administrateur |
+
+« back-office » = `ADMIN_AGENCE` ou `CHARGE_RECRUTEMENT`.
+
+---
+
+## Scripts
+
+| Commande                                 | Effet                                               |
+| ---------------------------------------- | --------------------------------------------------- |
+| `pnpm dev`                               | Contracts compilés, puis API et front en parallèle  |
+| `pnpm dev:backend` / `pnpm dev:frontend` | Un seul des deux                                    |
+| `pnpm build`                             | Contracts, puis API, puis front                     |
+| `pnpm test`                              | Contrats puis intégration API (140 tests)           |
+| `pnpm test:shared`                       | Règles partagées seules, sans base                  |
+| `pnpm test:backend`                      | Intégration API seule                               |
+| `pnpm typecheck`                         | TypeScript sur les trois paquets, tests compris     |
+| `pnpm lint` / `pnpm format`              | ESLint / Prettier                                   |
+| `pnpm infra:up` / `pnpm infra:down`      | Conteneurs PostgreSQL et Redis                      |
+| `pnpm db:migrate`                        | `prisma migrate dev`                                |
+| `pnpm db:seed`                           | Jeu de données de démonstration                     |
+| `pnpm db:studio`                         | Prisma Studio                                       |
+| `pnpm db:reset`                          | **Détruit** la base locale et rejoue les migrations |
+
+---
+
+## Limites connues
+
+**Le jeton d'accès survit jusqu'à 15 minutes à une révocation.** La session ne peut plus être
+prolongée dès qu'elle est coupée, mais le JWT en cours reste accepté jusqu'à son expiration. Le
+réduire supposerait une vérification en base à chaque requête — arbitrage entre latence et délai de
+coupure, à poser si le contexte l'exige.
+
+**La limitation de débit est en mémoire du processus.** Elle se remet à zéro à chaque redémarrage et
+ne se partage pas entre instances. Dès que l'API tournera sur plus d'une instance, il faudra la
+faire passer par Redis, déjà présent dans le `docker-compose`.
+
+**Le géomatching n'est pas implémenté.** La colonne PostGIS `geom` existe sur `Candidat` et
+`LieuIntervention` mais n'est alimentée par rien : elle attend le moteur de matching du lot 2.
+
+**`connexionSchema` accepte 8 caractères** là où la création en exige 12, pour ne pas bloquer un
+compte historique.
+
+**Les tests d'intégration partagent une base** et s'exécutent en série. Suffisant à cette échelle,
+mais à revoir si la suite s'allonge.
+
+**Le produit s'appelle Relève, le code s'appelle Passerelle.** Les paquets (`@passerelle/shared`),
+le titre de page dans `nuxt.config.ts` et l'en-tête du back-office portent encore le nom de
+travail. Sans conséquence technique, mais visible en soutenance.
+
+**Aucun test ne couvre le front.** Les 140 tests portent sur l'API et les règles partagées ; les
+pages Nuxt, les layouts et `AppIcon` ne sont vérifiés que par le typecheck et le lint.
+
+**La couverture n'est pas mesurée.** `vitest run --coverage` n'est câblé nulle part, alors que le
+rapport de couverture est un livrable attendu.
+
+### Piège de développement
+
+Nuxt pré-charge `@passerelle/shared` au démarrage. Après toute modification du paquet
+`contracts`, **redémarrer le serveur Nuxt** : sinon une page tombe en 500 avec un
+`Cannot convert undefined or null to object` sur le symbole nouvellement ajouté. Si le redémarrage
+ne suffit pas, supprimer `frontend/node_modules/.vite`.
+
+---
+
+## Questions métier en attente
+
+Le socle est livré et testé. Restent des questions métier, pas du code :
+
+Elles sont détaillées dans [`docs/questions-a-trancher.md`](docs/questions-a-trancher.md), prêtes à
+être envoyées : chaque question y indique ce qu'elle bloque et à partir de quand. **Le format
+d'export attendu par le logiciel de paie est la plus urgente** — il conditionne une partie du
+modèle, et une réponse tardive se paie en reprise de données.

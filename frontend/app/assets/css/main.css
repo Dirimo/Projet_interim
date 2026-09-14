@@ -1,0 +1,78 @@
+/*
+ * Palette issue du Figma « Releve » (fichier 9pCZmDqcx6nuuMRoYdLmNH).
+ * Le fichier ne declare aucune variable Figma : les valeurs sont les hex bruts
+ * releves sur les dix ecrans, regroupes ici pour rester la seule source de
+ * verite du front.
+ */
+:root {
+  --ground: #f4f8f6;
+  --surface: #ffffff;
+  --surface-2: #ddf3ec;
+  --ink: #16302b;
+  --muted: #65746f;
+  --line: #dce7e2;
+  --dom: #167a65;
+  --dom-soft: #ddf3ec;
+  --eta: #f26b4f;
+  --eta-soft: #fff0ec;
+  --sans: 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+
+  /* Vert sombre : texte pose sur --dom-soft, et fond des cartes pleines
+   * (action urgente de l'accueil etablissement, bandeau de correspondance). */
+  --dom-fonce: #0d594a;
+
+  /* Texte secondaire pose sur --dom-fonce, la ou --muted manquerait de
+   * contraste. */
+  --dom-contraste: #dcede8;
+
+  /* Le design distingue l'avatar de la personne connectee de celui des
+   * etablissements par cette teinte lavande. */
+  --lavande: #eeeafb;
+
+  /* Rayons du design : champ, marque, tuile d'icone, carte, grande carte. */
+  --r-champ: 12px;
+  --r-marque: 13px;
+  --r-tuile: 14px;
+  --r-carte: 16px;
+  --r-carte-large: 24px;
+
+  --ombre-carte: 0 8px 24px rgba(21, 53, 45, 0.07);
+}
+
+/* Le Figma ne couvre pas le theme sombre : les teintes sont transposees a
+ * partir des memes hues pour que les ecrans deja codes restent lisibles. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0e1714;
+    --surface: #15201d;
+    --surface-2: #1b2925;
+    --ink: #e4ede9;
+    --muted: #94a8a1;
+    --line: #27352f;
+    --dom: #4fb79c;
+    --dom-soft: #123028;
+    --eta: #f58a72;
+    --eta-soft: #3a201a;
+    --dom-fonce: #0b463b;
+    --dom-contraste: #cfe3dc;
+    --lavande: #241f33;
+    --ombre-carte: 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--sans);
+  line-height: 1.55;
+}
+
+a {
+  color: var(--dom);
+}

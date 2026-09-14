@@ -1,0 +1,36 @@
+name: passerelle
+
+services:
+  db:
+    # Image PostGIS : le geomatching candidat -> lieu d'intervention en depend.
+    image: postgis/postgis:16-3.4
+    container_name: passerelle-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: passerelle
+      POSTGRES_PASSWORD: passerelle
+      POSTGRES_DB: passerelle
+    ports:
+      # 5434 : 5432 et 5433 sont deja pris sur les postes de dev (Postgres local / WSL).
+      - '5434:5432'
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U passerelle -d passerelle']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    # File de jobs BullMQ : matching differe, notifications, relances.
+    image: redis:7-alpine
+    container_name: passerelle-redis
+    restart: unless-stopped
+    ports:
+      - '6380:6379'
+    volumes:
+      - redis_data:/data
+
+volumes:
+  db_data:
+  redis_data:
