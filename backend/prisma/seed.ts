@@ -5,28 +5,57 @@ const prisma = new PrismaClient();
 
 // Comptes de demonstration : le mot de passe est volontairement le meme pour
 // tous, et volontairement inutilisable ailleurs qu'en local.
-const MOT_DE_PASSE_DEMO = 'Passerelle2026!';
+const MOT_DE_PASSE_DEMO = 'Releve2026!';
 
-const QUALIFICATIONS: { code: string; libelle: string; filieres: Filiere[] }[] = [
+// Le code ROME rattache chaque diplome au marche observe sur France Travail :
+// J1501 pour les soins, K1302 pour l'assistance aux adultes, K1304 pour les
+// services domestiques. Ce sont les trois codes que la collecte importe.
+const QUALIFICATIONS: { code: string; libelle: string; filieres: Filiere[]; romeCode: string }[] = [
   {
     code: 'DEAES',
     libelle: "Diplome d'Etat d'accompagnant educatif et social",
     filieres: ['DOMICILE', 'ETABLISSEMENT'],
+    romeCode: 'K1302',
   },
-  { code: 'DEAS', libelle: "Diplome d'Etat d'aide-soignant", filieres: ['ETABLISSEMENT'] },
-  { code: 'ADVF', libelle: 'Titre pro assistant de vie aux familles', filieres: ['DOMICILE'] },
-  { code: 'AVS', libelle: 'Auxiliaire de vie sociale', filieres: ['DOMICILE'] },
-  { code: 'ASH', libelle: 'Agent des services hospitaliers', filieres: ['ETABLISSEMENT'] },
-  { code: 'AMP', libelle: 'Aide medico-psychologique', filieres: ['ETABLISSEMENT'] },
+  {
+    code: 'DEAS',
+    libelle: "Diplome d'Etat d'aide-soignant",
+    filieres: ['ETABLISSEMENT'],
+    romeCode: 'J1501',
+  },
+  {
+    code: 'ADVF',
+    libelle: 'Titre pro assistant de vie aux familles',
+    filieres: ['DOMICILE'],
+    romeCode: 'K1304',
+  },
+  {
+    code: 'AVS',
+    libelle: 'Auxiliaire de vie sociale',
+    filieres: ['DOMICILE'],
+    romeCode: 'K1304',
+  },
+  {
+    code: 'ASH',
+    libelle: 'Agent des services hospitaliers',
+    filieres: ['ETABLISSEMENT'],
+    romeCode: 'K1302',
+  },
+  {
+    code: 'AMP',
+    libelle: 'Aide medico-psychologique',
+    filieres: ['ETABLISSEMENT'],
+    romeCode: 'K1302',
+  },
 ];
 
 async function main(): Promise<void> {
   const agence = await prisma.agence.upsert({
     where: { id: '00000000-0000-4000-8000-000000000001' },
-    update: {},
+    update: { nom: 'Relève - agence pilote' },
     create: {
       id: '00000000-0000-4000-8000-000000000001',
-      nom: 'Passerelle - agence pilote',
+      nom: 'Relève - agence pilote',
       ville: 'Nantes',
     },
   });
@@ -34,7 +63,11 @@ async function main(): Promise<void> {
   for (const qualification of QUALIFICATIONS) {
     await prisma.qualification.upsert({
       where: { code: qualification.code },
-      update: { libelle: qualification.libelle, filieres: qualification.filieres },
+      update: {
+        libelle: qualification.libelle,
+        filieres: qualification.filieres,
+        romeCode: qualification.romeCode,
+      },
       create: qualification,
     });
   }
@@ -253,8 +286,8 @@ async function main(): Promise<void> {
     clientId?: string;
     candidatId?: string;
   }[] = [
-    { email: 'admin@passerelle.example', role: 'ADMIN_AGENCE', agenceId: agence.id },
-    { email: 'charge@passerelle.example', role: 'CHARGE_RECRUTEMENT', agenceId: agence.id },
+    { email: 'admin@releve.example', role: 'ADMIN_AGENCE', agenceId: agence.id },
+    { email: 'charge@releve.example', role: 'CHARGE_RECRUTEMENT', agenceId: agence.id },
     // Prepares pour les lots 2 et 3 : les espaces client et candidat n'ont pas
     // encore d'ecran, mais le jeton porte deja le bon rattachement.
     { email: 'secteur@les-tilleuls.example', role: 'CLIENT', clientId: saadTilleuls.id },

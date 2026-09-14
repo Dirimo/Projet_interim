@@ -14,7 +14,7 @@ async function bootstrap(): Promise<void> {
   });
 
   const config = new DocumentBuilder()
-    .setTitle('Passerelle API')
+    .setTitle('Relève API')
     .setDescription("API de la plateforme d'interim aide a domicile")
     .setVersion('0.1.0')
     .addBearerAuth()

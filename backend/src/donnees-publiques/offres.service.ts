@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { Barometre, SuggestionTaux } from '@passerelle/shared';
+import type { Barometre, SuggestionTaux } from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { CacheService } from './cache.service';
 import { FranceTravailClient, type CriteresRecherche } from './france-travail.client';

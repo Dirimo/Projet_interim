@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { ClientResume, PageResultat } from '@passerelle/shared';
-import { TYPE_CLIENT_LIBELLES } from '@passerelle/shared';
+import type { ClientResume, PageResultat } from '@releve/shared';
+import { TYPE_CLIENT_LIBELLES } from '@releve/shared';
 
 const { requete } = useApi();
 

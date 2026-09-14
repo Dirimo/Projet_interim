@@ -1,20 +1,31 @@
 <script setup lang="ts">
-import { trouverMission } from '~/data/missions-demo';
+import type { MissionDetail } from '@releve/shared';
 
 const route = useRoute();
+const { requete } = useApi();
 
-const mission = computed(() => trouverMission(String(route.params.id)));
+const identifiant = String(route.params.id);
 
-if (!mission.value) {
+const { data: donnees } = await useAsyncData(`mission:${identifiant}`, () =>
+  requete<MissionDetail>(`/missions/${identifiant}`),
+);
+
+if (!donnees.value) {
   throw createError({ statusCode: 404, statusMessage: 'Mission introuvable', fatal: true });
 }
 
-useHead({ title: 'Candidature envoyee - Passerelle' });
+const mission = computed(() =>
+  donnees.value
+    ? { etablissement: { nom: donnees.value.client.raisonSociale } }
+    : undefined,
+);
+
+useHead({ title: 'Candidature envoyee - Relève' });
 
 /**
- * Le Figma fige l'heure d'envoi a 09:42. On la calcule cote client apres le
- * montage : l'inscrire dans le rendu serveur ferait diverger l'hydratation, et
- * une heure fausse sur un accuse de reception se remarque.
+ * Le Figma fige l'heure d'envoi a 09:42. On l'affiche apres le montage :
+ * l'inscrire dans le rendu serveur ferait diverger l'hydratation, et une heure
+ * fausse sur un accuse de reception se remarque.
  */
 const heure = ref('');
 

@@ -1,17 +1,83 @@
 <script setup lang="ts">
-import { trouverCandidat } from '~/data/missions-demo';
+import type { PropositionResume } from '@releve/shared';
 
 const route = useRoute();
+const { requete } = useApi();
 
-const candidat = computed(() => trouverCandidat(String(route.params.id)));
+/**
+ * L'identifiant de la route est celui de la candidature, pas du candidat : un
+ * etablissement ne consulte jamais un profil « en general », il consulte une
+ * personne qui a postule chez lui. C'est aussi ce qui borne l'acces.
+ */
+const identifiant = String(route.params.id);
 
-if (!candidat.value) {
-  throw createError({ statusCode: 404, statusMessage: 'Candidat introuvable', fatal: true });
+const { data: proposition, refresh } = await useAsyncData(`candidature:${identifiant}`, () =>
+  requete<PropositionResume>(`/propositions/${identifiant}`),
+);
+
+if (!proposition.value) {
+  throw createError({ statusCode: 404, statusMessage: 'Candidature introuvable', fatal: true });
 }
 
-useHead({ title: () => `${candidat.value?.nom ?? 'Candidat'} - Passerelle` });
+const candidat = computed(() => {
+  const donnees = proposition.value;
+  if (!donnees) return undefined;
 
-const confirme = ref(false);
+  return {
+    ...donnees.candidat,
+    nom: `${donnees.candidat.prenom} ${donnees.candidat.nom}`,
+    message: donnees.message,
+  };
+});
+
+useHead({ title: () => `${candidat.value?.nom ?? 'Candidat'} - Relève` });
+
+const mission = computed(() => proposition.value?.mission);
+const decidee = computed(() => proposition.value?.statut !== 'ACCEPTEE_CANDIDAT');
+const retenu = computed(() => proposition.value?.statut === 'VALIDEE_CLIENT');
+
+/**
+ * Le score du Figma etait un pourcentage de correspondance. Le moteur de
+ * matching n'existe pas encore : plutot qu'un chiffre invente, on affiche ce
+ * qui est reellement verifie - diplome exige detenu, profil valide par
+ * l'agence. Le champ `score` de l'API reste null jusqu'au branchement.
+ */
+const correspondance = computed(() => {
+  const donnees = proposition.value;
+  if (!donnees) return undefined;
+
+  if (donnees.score !== null) {
+    return {
+      valeur: `${Math.round(donnees.score)}%`,
+      titre: 'Correspondance calculee',
+      justification: 'Score du moteur de matching.',
+    };
+  }
+
+  return {
+    valeur: donnees.candidat.etiquettes.length.toString(),
+    titre: 'Verifications au vert',
+    justification: `${donnees.candidat.qualification ?? 'Diplome'} verifie par l agence. Le score de correspondance arrivera avec le moteur de matching.`,
+  };
+});
+
+const envoi = ref(false);
+const erreur = ref('');
+
+async function decider(action: 'valider' | 'refuser'): Promise<void> {
+  erreur.value = '';
+  envoi.value = true;
+
+  try {
+    await requete<PropositionResume>(`/propositions/${identifiant}/${action}`, { method: 'POST' });
+    await refresh();
+  } catch (cause) {
+    const corps = (cause as { data?: { message?: string } }).data;
+    erreur.value = corps?.message ?? 'Action impossible pour le moment.';
+  } finally {
+    envoi.value = false;
+  }
+}
 </script>
 
 <template>
@@ -34,12 +100,21 @@ const confirme = ref(false);
         </div>
       </header>
 
-      <AppCarte variante="pleine" class="correspondance">
-        <p class="score">{{ candidat.score }}%</p>
+      <AppCarte v-if="correspondance" variante="pleine" class="correspondance">
+        <p class="score">{{ correspondance.valeur }}</p>
         <div>
-          <p class="titre-score">{{ candidat.correspondance }}</p>
-          <p class="justification">{{ candidat.justification }}</p>
+          <p class="titre-score">{{ correspondance.titre }}</p>
+          <p class="justification">{{ correspondance.justification }}</p>
         </div>
+      </AppCarte>
+
+      <AppCarte v-if="mission" class="mission">
+        <p class="libelle-mission">Candidature pour</p>
+        <p class="valeur-mission">
+          {{ mission.qualificationRequise.libelle }} - {{ jourCourt(mission.dateDebut) }},
+          {{ horaires(mission.heureDebut, mission.heureFin) }}
+        </p>
+        <p class="lieu-mission">{{ mission.lieu.libelle }} - {{ mission.lieu.ville }}</p>
       </AppCarte>
 
       <AppCarte class="atouts">
@@ -52,31 +127,79 @@ const confirme = ref(false);
         </div>
       </AppCarte>
 
-      <section class="message">
+      <section v-if="candidat.message" class="message">
         <h2>Message</h2>
-        <p class="citation">{{ candidat.message }}</p>
+        <p class="citation">&laquo; {{ candidat.message }} &raquo;</p>
       </section>
 
       <div class="actions">
-        <AppBouton icone="check" :desactive="confirme" @click="confirme = true">
-          {{ confirme ? 'Confirmation enregistree' : `Confirmer ${candidat.prenom}` }}
-        </AppBouton>
+        <p v-if="erreur" class="refus" role="alert">{{ erreur }}</p>
 
-        <!-- La messagerie n'existe pas encore cote produit. -->
-        <AppBouton variante="secondaire" icone="message-circle" desactive>
-          Echanger avant de confirmer
-        </AppBouton>
+        <template v-if="decidee">
+          <p class="avertissement" role="status">
+            {{
+              retenu
+                ? `${candidat.prenom} est confirme sur cette mission.`
+                : 'Cette candidature a ete ecartee.'
+            }}
+          </p>
+          <AppBouton variante="secondaire" to="/etablissement">Retour a l accueil</AppBouton>
+        </template>
 
-        <p v-if="confirme" class="avertissement" role="status">
-          Confirmation gardee dans la page : le domaine « mission » n'est pas encore expose par
-          l'API.
-        </p>
+        <template v-else>
+          <AppBouton icone="check" :desactive="envoi" @click="decider('valider')">
+            {{ envoi ? 'Enregistrement...' : `Confirmer ${candidat.prenom}` }}
+          </AppBouton>
+
+          <AppBouton variante="secondaire" :desactive="envoi" @click="decider('refuser')">
+            Ecarter cette candidature
+          </AppBouton>
+
+          <p class="avertissement">
+            Confirmer pourvoit la mission : les autres candidatures sont automatiquement ecartees.
+          </p>
+        </template>
       </div>
     </div>
   </section>
 </template>
 
 <style scoped>
+.mission {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.libelle-mission {
+  margin: 0;
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.valeur-mission {
+  margin: 0;
+  font-weight: 700;
+}
+
+.lieu-mission {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.refus {
+  margin: 0 0 4px;
+  padding: 10px 12px;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--eta);
+  background: var(--eta-soft);
+  border-radius: var(--r-champ);
+}
+
 .profil {
   padding-block: 16px 0;
 }

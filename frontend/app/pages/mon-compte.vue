@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { MOT_DE_PASSE_LONGUEUR_MIN, ROLE_LIBELLES } from '@passerelle/shared';
+import { MOT_DE_PASSE_LONGUEUR_MIN, ROLE_LIBELLES } from '@releve/shared';
 
 const { requete } = useApi();
 const { utilisateur } = useSession();

@@ -19,20 +19,21 @@ l'analyse concurrentielle est dans
 
 Le projet est un **POC de onze jours**. Deux sont consommés, neuf restent.
 
-| Jalon                                      | Périmètre                                                                            | État                        |
-| ------------------------------------------ | ------------------------------------------------------------------------------------ | --------------------------- |
-| **J1–J2 — Socle et vivier**                | Monorepo, authentification et rôles, référentiels, fiches candidats, back-office     | **Livré**, 140 tests        |
-| J3–J5 — Comptes, mission, profil           | Inscription entreprise et intérimaire **faite**, reste création de mission et profil | En cours · 7 j·dev          |
-| J5–J7 — Données publiques et matching      | Import France Travail, baromètre et cache Redis **faits**, reste le matching         | En cours · 7 j·dev          |
-| J7–J9 — Tableau de bord, SEO, no-code, conformité | Trois états de mission, pages publiques, n8n, RGAA / RGESN / RGPD             | À faire · 8 j·dev           |
-| J10–J11 — Tests, livrables, soutenance     | Couverture transmise, étude de marché, chiffrage réel, pitch                         | À faire · 4 j·dev           |
+| Jalon                                             | Périmètre                                                                        | État                                          |
+| ------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------- |
+| **J1–J2 — Socle et vivier**                       | Monorepo, authentification et rôles, référentiels, fiches candidats, back-office | **Livré**, 169 tests                          |
+| **J3–J5 — Comptes, mission, profil**              | Inscription des deux profils, dépôt de besoin, candidature, validation           | **Livré** · reste le profil détaillé, 2 j·dev |
+| J5–J7 — Données publiques et matching             | Import France Travail, baromètre, cache Redis, taux suggéré **faits**            | En cours · reste le matching, 3 j·dev         |
+| J7–J9 — Tableau de bord, SEO, no-code, conformité | Trois états de mission, pages publiques, n8n, RGAA / RGESN / RGPD                | À faire · 8 j·dev                             |
+| J10–J11 — Tests, livrables, soutenance            | Couverture transmise, étude de marché, chiffrage réel, pitch                     | À faire · 4 j·dev                             |
 
 **26 j·dev pour 27 disponibles** à trois personnes : la marge tient dans une journée. Le chiffrage
 par fonctionnalité, le plan de repli et les livrables datés sont dans le cahier des charges figé à
 J+2, qui sert de référence pour l'écart entre estimé et réel.
 
-Le schéma de base couvre déjà l'ensemble du produit cible (missions, propositions, contrats,
-relevés, factures) : les tables existent, mais l'API n'expose pour l'instant que le socle.
+**La boucle produit est fermée** : un service publie un besoin, un intérimaire qualifié le voit et
+postule, le service le confirme, la mission apparaît dans son suivi. Restent en base sans API les
+contrats, les relevés d'heures et les factures.
 
 ---
 
@@ -84,15 +85,15 @@ pris sur un poste de développement (Postgres local, WSL).
 
 ### Comptes de démonstration
 
-Mot de passe commun : `Passerelle2026!`. Relancer `pnpm db:seed` réécrit les mots de passe, c'est
+Mot de passe commun : `Releve2026!`. Relancer `pnpm db:seed` réécrit les mots de passe, c'est
 le moyen le plus simple de récupérer un accès en local.
 
-| Adresse                       | Rôle                    | Rattachement             |
-| ----------------------------- | ----------------------- | ------------------------ |
-| `admin@passerelle.example`    | Administrateur d'agence | Agence pilote            |
-| `charge@passerelle.example`   | Chargé de recrutement   | Agence pilote            |
-| `secteur@les-tilleuls.example` | Client                 | Les Tilleuls (SAAD)      |
-| `sophie.marchand@example.org` | Candidat                | Fiche de Sophie Marchand |
+| Adresse                        | Rôle                    | Rattachement             |
+| ------------------------------ | ----------------------- | ------------------------ |
+| `admin@releve.example`         | Administrateur d'agence | Agence pilote            |
+| `charge@releve.example`        | Chargé de recrutement   | Agence pilote            |
+| `secteur@les-tilleuls.example` | Client                  | Les Tilleuls (SAAD)      |
+| `sophie.marchand@example.org`  | Candidat                | Fiche de Sophie Marchand |
 
 Les deux derniers n'ont pas encore d'écran : leurs espaces arrivent aux lots 2 et 3. Leur jeton
 porte déjà le bon rattachement.
@@ -130,13 +131,13 @@ fonctionne.
 
 La donnée brute n'est pas exploitable telle quelle. Sur un échantillon réel de 600 offres :
 
-| Étape | Effet mesuré |
-| ----- | ------------ |
-| Écartées faute de lieu exploitable | 5 offres |
-| Républications fusionnées | 97 offres, soit 16 % |
-| **Retenues** | **498** |
-| dont salaire exploitable | 264 |
-| dont sans salaire annoncé | 234 |
+| Étape                              | Effet mesuré         |
+| ---------------------------------- | -------------------- |
+| Écartées faute de lieu exploitable | 5 offres             |
+| Républications fusionnées          | 97 offres, soit 16 % |
+| **Retenues**                       | **498**              |
+| dont salaire exploitable           | 264                  |
+| dont sans salaire annoncé          | 234                  |
 
 - **Salaires** : huit formes de libellé coexistent (`Horaire de 15.0 Euros`,
   `Mensuel de 1800.0 Euros à 2000.0 Euros sur 12.0 mois`, `Annuel de 24000.0 Euros`, suivies parfois
@@ -167,12 +168,12 @@ aucune variable Figma** : les couleurs y sont des hex posés à la main sur les 
 donc été relevées et regroupées dans `frontend/app/assets/css/main.css`, qui devient la seule
 source de vérité côté code.
 
-| Ce que le Figma donne | Ce que le code en fait                                              |
-| --------------------- | ------------------------------------------------------------------- |
-| Couleurs des écrans   | Tokens `--ground`, `--surface`, `--ink`, `--dom`, `--eta`…          |
+| Ce que le Figma donne | Ce que le code en fait                                                  |
+| --------------------- | ----------------------------------------------------------------------- |
+| Couleurs des écrans   | Tokens `--ground`, `--surface`, `--ink`, `--dom`, `--eta`…              |
 | Rayons                | `--r-champ` 12px, `--r-marque` 13px, `--r-tuile` 14px, `--r-carte` 16px |
-| Icônes                | SVG exportés, inlinés par `AppIcon.vue` avec `currentColor`          |
-| Cadre mobile 402 px   | Layout `onboarding`, centré plutôt qu'étiré sur grand écran          |
+| Icônes                | SVG exportés, inlinés par `AppIcon.vue` avec `currentColor`             |
+| Cadre mobile 402 px   | Layout `onboarding`, centré plutôt qu'étiré sur grand écran             |
 
 Les icônes sont **inlinées** et non chargées en `<img>` : une balise image ne se recolore pas, et
 le même tracé doit servir la puce verte d'un choix sélectionné et la puce grise d'un autre.
@@ -205,6 +206,8 @@ backend/                          API NestJS
       mots-de-passe.ts            Argon2id
     candidats/                    vivier : fiche, qualifications, disponibilités
     clients/                      clients SAAD et lieux d'intervention
+    missions/                     dépôt de besoin, visibilité par profil, annulation
+    propositions/                 candidatures, décision du client, mission confirmée
     donnees-publiques/            France Travail : collecte, nettoyage, baromètre
       france-travail.client.ts    OAuth2 et pagination de l'API Offres d'emploi
       normalisation.ts            salaires et dédoublonnage (pur, testé sans base)
@@ -215,13 +218,14 @@ backend/                          API NestJS
     qualifications/               référentiel partagé
     utilisateurs/                 gestion des comptes
     common/
-      zod-validation.pipe.ts      valide avec les schémas de @passerelle/shared
+      zod-validation.pipe.ts      valide avec les schémas de @releve/shared
     health/                       sonde /api/sante
-  test/                           117 tests d'intégration
+  test/                           146 tests d'intégration
     fixtures.ts                   deux agences symétriques, app de test
     cloisonnement.spec.ts         étanchéité entre agences
     roles.spec.ts                 gardes de rôle et routes publiques
     inscription.spec.ts           parcours des deux profils, permissions
+    missions.spec.ts              la boucle complète, vue par les trois profils
     disponibilites.spec.ts        chevauchements, travail de nuit
     donnees-publiques.spec.ts     import, médianes, exposition API
     normalisation.spec.ts         salaires et empreintes, sans base ni réseau
@@ -239,7 +243,9 @@ frontend/                         Front Nuxt
     assets/
       css/main.css                tokens du Figma : couleurs, rayons, familles
       icons/*.svg                 exports Figma, recolorés par currentColor
-    components/AppIcon.vue        inline les tracés pour qu'ils suivent la couleur
+    components/                   AppBouton, AppCarte, AppBadge, AppAvatar, AppBarreApp
+      AppIcon.vue                 inline les tracés pour qu'ils suivent la couleur
+    utils/mise-en-forme.ts        dates, durées et montants : une seule définition
     layouts/
       default.vue                 coque agence : en-tête, menu selon le rôle
       onboarding.vue              cadre 402 px des écrans issus des maquettes
@@ -257,11 +263,15 @@ frontend/                         Front Nuxt
       clients/index.vue           liste des clients
       clients/[id].vue            fiche client et ses lieux
       tension.vue                 baromètre du marché, données France Travail
+      missions/                   tableau des missions et fiche, côté intérimaire
+      candidature/[id].vue        accusé de réception d'une candidature
+      suivi.vue                   mission confirmée, contact et itinéraire
+      etablissement/              accueil, dépôt de besoin, profil d'un candidat
       mon-espace.vue              espace des profils externes
       comptes.vue                 administration des accès
       mon-compte.vue              changement de son mot de passe
 
-shared/                           @passerelle/shared — contrat API ↔ front
+shared/                           @releve/shared — contrat API ↔ front
   src/
     enums.ts                      énumérations et libellés d'affichage
     motifs.ts                     expressions régulières de saisie
@@ -269,6 +279,7 @@ shared/                           @passerelle/shared — contrat API ↔ front
     auth.ts, utilisateur.ts, inscription.ts
     candidat.ts, disponibilite.ts
     client.ts, lieu.ts, qualification.ts
+    mission.ts, proposition.ts    dépôt de besoin, candidature, décision
     tension.ts                    baromètre et suggestion de taux
     pagination.ts
   test/                           23 tests unitaires des règles partagées
@@ -386,14 +397,17 @@ Base : `http://localhost:3001/api`. Toutes les routes sauf mention contraire exi
 
 ### Authentification
 
-| Méthode | Route                | Accès                                    |
-| ------- | -------------------- | ---------------------------------------- |
-| `POST`  | `/auth/connexion`    | public                                   |
-| `POST`  | `/auth/rafraichir`   | public — porteur du jeton de session     |
-| `POST`  | `/auth/deconnexion`  | public — porteur du jeton de session     |
-| `GET`   | `/auth/moi`          | authentifié                              |
-| `POST`  | `/auth/mot-de-passe` | authentifié — changement par l'intéressé |
-| `GET`   | `/sante`             | public                                   |
+| Méthode | Route                           | Accès                                    |
+| ------- | ------------------------------- | ---------------------------------------- |
+| `POST`  | `/auth/connexion`               | public                                   |
+| `POST`  | `/auth/inscription/entreprise`  | public — crée le compte et le client     |
+| `POST`  | `/auth/inscription/interimaire` | public — crée le compte et le candidat   |
+| `POST`  | `/auth/rafraichir`              | public — porteur du jeton de session     |
+| `POST`  | `/auth/deconnexion`             | public — porteur du jeton de session     |
+| `GET`   | `/auth/moi`                     | authentifié                              |
+| `GET`   | `/auth/mon-espace`              | authentifié — vue selon le profil        |
+| `POST`  | `/auth/mot-de-passe`            | authentifié — changement par l'intéressé |
+| `GET`   | `/sante`                        | public                                   |
 
 ### Candidats
 
@@ -433,6 +447,49 @@ Base : `http://localhost:3001/api`. Toutes les routes sauf mention contraire exi
 | `PATCH` | `/utilisateurs/:id`              | administrateur |
 | `POST`  | `/utilisateurs/:id/mot-de-passe` | administrateur |
 
+### Missions
+
+| Méthode | Route                           | Accès                         |
+| ------- | ------------------------------- | ----------------------------- |
+| `GET`   | `/missions`                     | authentifié — vue par profil  |
+| `GET`   | `/missions/resume`              | authentifié — tableau de bord |
+| `GET`   | `/missions/options-publication` | back-office ou client         |
+| `GET`   | `/missions/:id`                 | authentifié — vue par profil  |
+| `POST`  | `/missions`                     | back-office ou client         |
+| `PATCH` | `/missions/:id`                 | back-office ou client         |
+| `POST`  | `/missions/:id/annuler`         | back-office ou client         |
+| `POST`  | `/missions/:id/candidatures`    | candidat                      |
+
+**Ce que chaque profil voit est décidé dans le service, jamais dans le contrôleur.** L'agence voit
+son périmètre, le client ses missions, le candidat les missions ouvertes **de son agence** plus
+celles où il a postulé. Les consignes d'accès au domicile ne sortent que pour l'agence, le client
+et le candidat retenu : quelqu'un qui consulte l'annonce n'a pas à lire le code de la porte.
+
+### Candidatures
+
+| Méthode | Route                       | Accès                              |
+| ------- | --------------------------- | ---------------------------------- |
+| `GET`   | `/propositions`             | authentifié — vue par profil       |
+| `GET`   | `/propositions/courante`    | candidat — prochaine confirmée     |
+| `GET`   | `/propositions/:id`         | authentifié — vue par profil       |
+| `POST`  | `/propositions/:id/valider` | back-office ou client              |
+| `POST`  | `/propositions/:id/refuser` | authentifié — sens selon le profil |
+
+Une candidature déposée par l'intéressé naît `ACCEPTEE_CANDIDAT` : en cliquant, il a déjà dit oui,
+seule la décision du client manque. Valider en retient un, écarte les autres et pourvoit la
+mission **en une transaction** — sinon deux validations concurrentes laisseraient deux personnes
+persuadées d'avoir la mission.
+
+### Tension du marché
+
+| Méthode | Route                 | Accès       |
+| ------- | --------------------- | ----------- |
+| `GET`   | `/tension`            | authentifié |
+| `GET`   | `/tension/suggestion` | authentifié |
+
+`/tension/suggestion` retombe sur la médiane nationale quand le département ne dit rien, et renvoie
+`perimetre: 'aucun'` plutôt que d'inventer un taux.
+
 « back-office » = `ADMIN_AGENCE` ou `CHARGE_RECRUTEMENT`.
 
 ---
@@ -444,7 +501,7 @@ Base : `http://localhost:3001/api`. Toutes les routes sauf mention contraire exi
 | `pnpm dev`                               | Contracts compilés, puis API et front en parallèle  |
 | `pnpm dev:backend` / `pnpm dev:frontend` | Un seul des deux                                    |
 | `pnpm build`                             | Contracts, puis API, puis front                     |
-| `pnpm test`                              | Contrats puis intégration API (140 tests)           |
+| `pnpm test`                              | Contrats puis intégration API (169 tests)           |
 | `pnpm test:shared`                       | Règles partagées seules, sans base                  |
 | `pnpm test:backend`                      | Intégration API seule                               |
 | `pnpm typecheck`                         | TypeScript sur les trois paquets, tests compris     |
@@ -469,7 +526,14 @@ ne se partage pas entre instances. Dès que l'API tournera sur plus d'une instan
 faire passer par Redis, déjà présent dans le `docker-compose`.
 
 **Le géomatching n'est pas implémenté.** La colonne PostGIS `geom` existe sur `Candidat` et
-`LieuIntervention` mais n'est alimentée par rien : elle attend le moteur de matching du lot 2.
+`LieuIntervention` mais n'est alimentée par rien. Conséquences visibles : le filtre « À proximité »
+du tableau des missions ne trie pas encore, et le profil d'un candidat s'affiche sans score de
+correspondance — `Proposition.score` reste `null`. Un pourcentage inventé serait pire qu'une case
+vide sur une décision de recrutement.
+
+**La porte d'éligibilité est binaire, pas scorée.** Pour postuler, il faut le diplôme exigé vérifié
+et non expiré, la filière au profil, et un profil validé par l'agence. Le refus dit lequel des
+trois manque, au lieu de faire disparaître la mission de la liste.
 
 **`connexionSchema` accepte 8 caractères** là où la création en exige 12, pour ne pas bloquer un
 compte historique.
@@ -477,7 +541,7 @@ compte historique.
 **Les tests d'intégration partagent une base** et s'exécutent en série. Suffisant à cette échelle,
 mais à revoir si la suite s'allonge.
 
-**Le produit s'appelle Relève, le code s'appelle Passerelle.** Les paquets (`@passerelle/shared`),
+**Le produit s'appelle Relève, le code s'appelle Relève.** Les paquets (`@releve/shared`),
 le titre de page dans `nuxt.config.ts` et l'en-tête du back-office portent encore le nom de
 travail. Sans conséquence technique, mais visible en soutenance.
 
@@ -489,7 +553,7 @@ rapport de couverture est un livrable attendu.
 
 ### Piège de développement
 
-Nuxt pré-charge `@passerelle/shared` au démarrage. Après toute modification du paquet
+Nuxt pré-charge `@releve/shared` au démarrage. Après toute modification du paquet
 `contracts`, **redémarrer le serveur Nuxt** : sinon une page tombe en 500 avec un
 `Cannot convert undefined or null to object` sur le symbole nouvellement ajouté. Si le redémarrage
 ne suffit pas, supprimer `frontend/node_modules/.vite`.

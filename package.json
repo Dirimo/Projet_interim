@@ -1,5 +1,5 @@
 {
-  "name": "passerelle",
+  "name": "releve",
   "version": "0.1.0",
   "private": true,
   "description": "Plateforme d'interim pour l'aide a domicile - monorepo",
@@ -8,24 +8,24 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "pnpm --filter @passerelle/shared build && pnpm --filter @passerelle/backend build && pnpm --filter @passerelle/frontend build",
-    "dev": "pnpm --filter @passerelle/shared build && pnpm -r --parallel dev",
-    "dev:backend": "pnpm --filter @passerelle/shared build && pnpm --filter @passerelle/backend dev",
-    "dev:frontend": "pnpm --filter @passerelle/shared build && pnpm --filter @passerelle/frontend dev",
+    "build": "pnpm --filter @releve/shared build && pnpm --filter @releve/backend build && pnpm --filter @releve/frontend build",
+    "dev": "pnpm --filter @releve/shared build && pnpm -r --parallel dev",
+    "dev:backend": "pnpm --filter @releve/shared build && pnpm --filter @releve/backend dev",
+    "dev:frontend": "pnpm --filter @releve/shared build && pnpm --filter @releve/frontend dev",
     "test": "pnpm test:shared && pnpm test:backend",
     "test:shared": "vitest run --root shared",
-    "test:backend": "pnpm --filter @passerelle/backend test",
+    "test:backend": "pnpm --filter @releve/backend test",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
     "format": "prettier --write .",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down",
-    "db:generate": "pnpm --filter @passerelle/backend db:generate",
-    "db:migrate": "pnpm --filter @passerelle/backend db:migrate",
-    "db:seed": "pnpm --filter @passerelle/backend db:seed",
-    "db:studio": "pnpm --filter @passerelle/backend db:studio",
-    "db:reset": "pnpm --filter @passerelle/backend db:reset",
-    "cli": "pnpm --filter @passerelle/shared build && pnpm --filter @passerelle/backend cli"
+    "db:generate": "pnpm --filter @releve/backend db:generate",
+    "db:migrate": "pnpm --filter @releve/backend db:migrate",
+    "db:seed": "pnpm --filter @releve/backend db:seed",
+    "db:studio": "pnpm --filter @releve/backend db:studio",
+    "db:reset": "pnpm --filter @releve/backend db:reset",
+    "cli": "pnpm --filter @releve/shared build && pnpm --filter @releve/backend cli"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

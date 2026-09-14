@@ -1,9 +1,48 @@
 <script setup lang="ts">
-import { MISSION_CONFIRMEE } from '~/data/missions-demo';
+import type { PropositionResume } from '@releve/shared';
 
-useHead({ title: 'Suivi de mission - Passerelle' });
+useHead({ title: 'Suivi de mission - Relève' });
 
-const mission = MISSION_CONFIRMEE;
+const { requete } = useApi();
+
+/**
+ * La route rend `null` quand rien n'est confirme : c'est un etat normal, pas
+ * une erreur. L'ecran affiche alors une invitation a postuler plutot qu'une
+ * carte vide.
+ */
+const { data: proposition } = await useAsyncData('mission-confirmee', () =>
+  requete<PropositionResume | null>('/propositions/courante'),
+);
+
+const mission = computed(() => {
+  const retenue = proposition.value?.mission;
+  if (!retenue) return undefined;
+
+  return {
+    etablissement: {
+      nom: retenue.client.raisonSociale,
+      initiales: initiales(retenue.client.raisonSociale),
+      localisation: `${retenue.lieu.libelle} · ${retenue.lieu.ville}`,
+    },
+    adresse: `${retenue.lieu.libelle}, ${retenue.lieu.codePostal} ${retenue.lieu.ville}`,
+    jour: jourCourt(retenue.dateDebut),
+    horaires: horaires(retenue.heureDebut, retenue.heureFin),
+    debutDans: debutDans(retenue.dateDebut, retenue.heureDebut),
+    // La messagerie et l'annuaire des cadres n'existent pas : le contact
+    // affiche est l'etablissement lui-meme, seule information reelle dont on
+    // dispose. Inventer un nom de cadre serait trompeur.
+    contact: {
+      nom: retenue.client.raisonSociale,
+      initiales: initiales(retenue.client.raisonSociale),
+      fonction: 'Etablissement employeur',
+    },
+    checklist: [
+      `Diplome ${retenue.qualificationRequise.code} verifie`,
+      'Candidature validee par l etablissement',
+      retenue.travailNuit ? 'Vacation de nuit - repos a prevoir' : 'Consignes d acces consultees',
+    ],
+  };
+});
 
 /**
  * « Voir l'itineraire » n'a pas de cible dans la maquette et le projet n'embarque
@@ -11,15 +50,25 @@ const mission = MISSION_CONFIRMEE;
  * navigateur, dans un nouvel onglet.
  */
 const itineraire = computed(
-  () => `https://www.openstreetmap.org/search?query=${encodeURIComponent(mission.adresse)}`,
+  () =>
+    `https://www.openstreetmap.org/search?query=${encodeURIComponent(mission.value?.adresse ?? '')}`,
 );
 </script>
 
 <template>
   <section class="suivi">
+    <div v-if="!mission" class="aucune">
+      <h1>Aucune mission confirmee</h1>
+      <p>
+        Vos candidatures en cours apparaitront ici des qu un etablissement en aura retenu une.
+      </p>
+      <AppBouton to="/missions">Voir les missions disponibles</AppBouton>
+    </div>
+
+    <template v-else>
     <header class="tete">
       <p class="statut">Mission confirmee</p>
-      <h1>Tout est pret pour ce soir</h1>
+      <h1>Tout est pret</h1>
     </header>
 
     <AppCarte class="mission">
@@ -76,10 +125,31 @@ const itineraire = computed(
         </ul>
       </section>
     </div>
+    </template>
   </section>
 </template>
 
 <style scoped>
+.aucune {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 28px 0;
+  max-width: 46ch;
+}
+
+.aucune h1 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.aucune p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
 .suivi {
   max-width: 720px;
   padding-block: 28px 0;

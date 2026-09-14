@@ -4,13 +4,13 @@ import type {
   Disponibilite,
   QualificationResume,
   StatutCandidat,
-} from '@passerelle/shared';
+} from '@releve/shared';
 import {
   chevauchements,
   FILIERE_LIBELLES,
   JOURS_SEMAINE,
   STATUT_CANDIDAT_LIBELLES,
-} from '@passerelle/shared';
+} from '@releve/shared';
 
 const route = useRoute();
 const { requete } = useApi();

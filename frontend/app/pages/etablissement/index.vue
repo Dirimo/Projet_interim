@@ -1,25 +1,73 @@
 <script setup lang="ts">
-import {
-  CANDIDATS,
-  ETABLISSEMENT_CONNECTE,
-  MISSION_DU_SOIR,
-  STATISTIQUES,
-} from '~/data/missions-demo';
+import type { MissionResume, PageResultat, PropositionResume, ResumeMissions } from '@releve/shared';
 
-useHead({ title: 'Accueil etablissement - Passerelle' });
+useHead({ title: 'Accueil etablissement - Relève' });
 
-/** La maquette relie la mission du soir a ses candidats sans preciser lequel :
- *  on ouvre le premier profil du vivier de demonstration. */
-const premierCandidat = computed(() => CANDIDATS[0]);
+const { requete } = useApi();
+const { utilisateur } = useSession();
+
+const [{ data: compteurs }, { data: missions }, { data: candidatures }] = await Promise.all([
+  useAsyncData('etablissement:resume', () => requete<ResumeMissions>('/missions/resume')),
+  useAsyncData('etablissement:missions', () =>
+    requete<PageResultat<MissionResume>>('/missions', { query: { limite: 5 } }),
+  ),
+  useAsyncData('etablissement:candidatures', () =>
+    requete<PageResultat<PropositionResume>>('/propositions', {
+      query: { statut: 'ACCEPTEE_CANDIDAT', limite: 1 },
+    }),
+  ),
+]);
+
+const etablissement = computed(() => ({
+  contact: prenomAffiche(utilisateur.value?.email),
+  nom: missions.value?.donnees[0]?.client.raisonSociale ?? 'Votre etablissement',
+}));
+
+/**
+ * Les trois compteurs du Figma, avec leurs teintes.
+ *
+ * Ils viennent d'une seule route qui agrege en base : trois appels separes
+ * afficheraient trois etats legerement decales pendant le chargement.
+ */
+const statistiques = computed(() => [
+  { valeur: compteurs.value?.actives ?? 0, libelle: 'Missions actives', teinte: 'vert' },
+  {
+    valeur: compteurs.value?.candidaturesRecues ?? 0,
+    libelle: 'Candidatures recues',
+    teinte: 'lavande',
+  },
+  { valeur: compteurs.value?.aConfirmer ?? 0, libelle: 'A confirmer', teinte: 'corail' },
+]);
+
+/**
+ * La carte du bas menait au premier profil du vivier de demonstration. Elle
+ * mene maintenant a la candidature reellement en attente : c'est la seule qui
+ * demande une decision.
+ */
+const aTrancher = computed(() => candidatures.value?.donnees[0]);
+
+const prochaine = computed(() => {
+  const mission = missions.value?.donnees[0];
+  if (!mission) return undefined;
+
+  return {
+    // « Aujourd'hui » et « Demain » ne prennent pas d'article, une date si.
+    titre: ["Aujourd'hui", 'Demain', 'Hier'].includes(jourCourt(mission.dateDebut))
+      ? `Mission de ${jourCourt(mission.dateDebut).toLowerCase()}`
+      : `Mission du ${jourCourt(mission.dateDebut).toLowerCase()}`,
+    poste: `${mission.qualificationRequise.libelle} - ${horaires(mission.heureDebut, mission.heureFin)}`,
+    lieu: `${mission.lieu.libelle} - ${mission.lieu.ville}`,
+    candidats: mission.candidaturesEnAttente,
+  };
+});
 </script>
 
 <template>
   <section class="accueil">
     <header class="tete">
       <div>
-        <p class="bonjour">Bonjour {{ ETABLISSEMENT_CONNECTE.contact }}</p>
-        <h1>{{ ETABLISSEMENT_CONNECTE.nom }}</h1>
-        <p class="mention">{{ ETABLISSEMENT_CONNECTE.mention }}</p>
+        <p class="bonjour">Bonjour {{ etablissement.contact }}</p>
+        <h1>{{ etablissement.nom }}</h1>
       </div>
       <!-- Aucun centre de notifications dans le projet : la cloche du design
            reste visible mais inactive. -->
@@ -41,7 +89,7 @@ const premierCandidat = computed(() => CANDIDATS[0]);
       <h2>Vue d'ensemble</h2>
       <ul class="statistiques">
         <li
-          v-for="statistique in STATISTIQUES"
+          v-for="statistique in statistiques"
           :key="statistique.libelle"
           :class="statistique.teinte"
         >
@@ -52,23 +100,48 @@ const premierCandidat = computed(() => CANDIDATS[0]);
     </section>
 
     <NuxtLink
-      v-if="premierCandidat"
-      :to="`/etablissement/candidats/${premierCandidat.id}`"
+      v-if="prochaine && aTrancher"
+      :to="`/etablissement/candidats/${aTrancher.id}`"
       class="lien-mission"
     >
       <AppCarte class="recente">
         <div class="entete-recente">
-          <p class="titre-recente">{{ MISSION_DU_SOIR.titre }}</p>
-          <AppBadge teinte="vert">{{ MISSION_DU_SOIR.candidats }} candidats</AppBadge>
+          <p class="titre-recente">{{ prochaine.titre }}</p>
+          <AppBadge teinte="vert">
+            {{ prochaine.candidats }} candidat{{ prochaine.candidats > 1 ? 's' : '' }}
+          </AppBadge>
         </div>
-        <p class="poste">{{ MISSION_DU_SOIR.poste }}</p>
-        <p class="lieu">{{ MISSION_DU_SOIR.lieu }}</p>
+        <p class="poste">{{ prochaine.poste }}</p>
+        <p class="lieu">{{ prochaine.lieu }}</p>
       </AppCarte>
     </NuxtLink>
+
+    <AppCarte v-else-if="prochaine" class="recente">
+      <div class="entete-recente">
+        <p class="titre-recente">{{ prochaine.titre }}</p>
+        <AppBadge>Aucune candidature</AppBadge>
+      </div>
+      <p class="poste">{{ prochaine.poste }}</p>
+      <p class="lieu">{{ prochaine.lieu }}</p>
+    </AppCarte>
+
+    <p v-else class="vide">
+      Aucune mission publiee pour l instant. Deposez un besoin pour recevoir des profils.
+    </p>
   </section>
 </template>
 
 <style scoped>
+.vide {
+  margin: 0;
+  padding: 18px;
+  color: var(--muted);
+  line-height: 1.55;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-carte);
+}
+
 .accueil {
   max-width: 720px;
   padding-block: 28px 0;

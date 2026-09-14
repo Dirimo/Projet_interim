@@ -1,50 +1,101 @@
 <script setup lang="ts">
-import { FILTRES, MISSIONS } from '~/data/missions-demo';
+import type { MissionResume, PageResultat } from '@releve/shared';
 
-useHead({ title: 'Missions disponibles - Passerelle' });
+useHead({ title: 'Missions disponibles - Relève' });
 
-const recherche = ref('');
-const filtre = ref<string>(FILTRES[0] ?? '');
+const { requete } = useApi();
+const { utilisateur } = useSession();
 
 /**
- * La maquette montre une barre de recherche et trois filtres sans dire ce
- * qu'ils font. Plutot que des controles inertes, ils operent sur le jeu de
- * donnees local : le jour ou la liste viendra de l'API, ces deux refs
- * deviendront des parametres de requete.
+ * Les trois filtres de la maquette, traduits en intentions reelles.
+ *
+ * « A proximite » ne trie encore rien : le geomatching PostGIS n'est pas
+ * branche, et un tri par distance invente serait pire qu'un tri neutre. Le
+ * libelle est conserve parce que la fonction viendra, le comportement est
+ * honnete en attendant.
  */
-const missions = computed(() => {
-  const terme = recherche.value.trim().toLowerCase();
+const FILTRES = ['A proximite', "Aujourd'hui", 'Mieux remunerees'] as const;
 
-  const filtrees = MISSIONS.filter((mission) => {
-    const correspond =
-      terme === '' ||
-      mission.etablissement.nom.toLowerCase().includes(terme) ||
-      mission.etablissement.localisation.toLowerCase().includes(terme);
+const recherche = ref('');
+const filtre = ref<(typeof FILTRES)[number]>(FILTRES[0]);
 
-    return correspond && (filtre.value !== "Aujourd'hui" || mission.jour === "Aujourd'hui");
-  });
+/**
+ * La recherche part a l'API, pas au tableau : le vivier peut etre long. On
+ * attend 300 ms de silence avant d'interroger, sinon chaque frappe declenche un
+ * appel et les reponses arrivent dans le desordre.
+ */
+const terme = ref('');
+let minuterie: ReturnType<typeof setTimeout> | undefined;
 
-  if (filtre.value === 'Mieux remunerees') {
-    return [...filtrees].sort((a, b) => tauxNumerique(b) - tauxNumerique(a));
-  }
-
-  return filtrees;
+watch(recherche, (valeur) => {
+  clearTimeout(minuterie);
+  minuterie = setTimeout(() => {
+    terme.value = valeur.trim();
+  }, 300);
 });
 
-/** « 18,50 EUR/h » -> 18.5, pour trier sans stocker le montant deux fois. */
-function tauxNumerique(mission: (typeof MISSIONS)[number]): number {
-  return Number.parseFloat(mission.tauxHoraire.replace(',', '.'));
+onBeforeUnmount(() => clearTimeout(minuterie));
+
+const { data, error } = await useAsyncData(
+  'missions-disponibles',
+  () =>
+    requete<PageResultat<MissionResume>>('/missions', {
+      query: {
+        statut: 'PUBLIEE',
+        limite: 50,
+        ...(terme.value ? { recherche: terme.value } : {}),
+        ...(filtre.value === "Aujourd'hui"
+          ? { depuis: jourIso(new Date()), jusqua: jourIso(new Date()) }
+          : {}),
+      },
+    }),
+  { watch: [terme, filtre] },
+);
+
+function jourIso(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate(),
+  ).padStart(2, '0')}`;
 }
+
+/**
+ * Adaptation vers ce que la carte du Figma affiche.
+ *
+ * « Urgent » n'est pas un champ : c'est une mission qui commence aujourd'hui ou
+ * demain. Le calculer ici evite d'ajouter une colonne qui dirait la meme chose
+ * que la date, et qui finirait fausse le lendemain.
+ */
+const missions = computed(() => {
+  const cartes = (data.value?.donnees ?? []).map((mission) => ({
+    id: mission.id,
+    etablissement: {
+      nom: mission.client.raisonSociale,
+      initiales: initiales(mission.client.raisonSociale),
+      localisation: `${mission.lieu.libelle} · ${mission.lieu.ville}`,
+    },
+    urgente: ["Aujourd'hui", 'Demain'].includes(jourCourt(mission.dateDebut)),
+    jour: jourCourt(mission.dateDebut),
+    horaires: horaires(mission.heureDebut, mission.heureFin),
+    tauxHoraire: tauxCourt(mission.tauxHoraire),
+    taux: mission.tauxHoraire ?? 0,
+  }));
+
+  return filtre.value === 'Mieux remunerees'
+    ? [...cartes].sort((a, b) => b.taux - a.taux)
+    : cartes;
+});
+
+const prenom = computed(() => prenomAffiche(utilisateur.value?.email));
 </script>
 
 <template>
   <section class="missions">
     <header class="entete">
       <div class="salutation">
-        <p class="bonjour">Bonjour Camille</p>
+        <p class="bonjour">Bonjour {{ prenom }}</p>
         <h1>Trouvez votre mission</h1>
       </div>
-      <AppAvatar initiales="CM" teinte="lavande" />
+      <AppAvatar :initiales="initiales(prenom)" teinte="lavande" />
     </header>
 
     <div class="recherche">
@@ -76,7 +127,13 @@ function tauxNumerique(mission: (typeof MISSIONS)[number]): number {
       {{ missions.length }} {{ missions.length > 1 ? 'missions' : 'mission' }} pres de vous
     </h2>
 
-    <p v-if="missions.length === 0" class="vide">Aucune mission ne correspond a cette recherche.</p>
+    <p v-if="error" class="vide">
+      Missions indisponibles pour le moment. Reessayer dans un instant.
+    </p>
+
+    <p v-else-if="missions.length === 0" class="vide">
+      Aucune mission ne correspond a cette recherche.
+    </p>
 
     <ul v-else class="liste">
       <li v-for="mission in missions" :key="mission.id">

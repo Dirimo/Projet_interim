@@ -16,7 +16,7 @@ import {
   type LieuResume,
   type LieuUpdate,
   type PageResultat,
-} from '@passerelle/shared';
+} from '@releve/shared';
 import { AgenceCourante, Roles } from '../auth/auth.decorateurs';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { ClientsService } from './clients.service';

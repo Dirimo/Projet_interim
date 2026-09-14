@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { FILIERE_LIBELLES, inscriptionInterimaireSchema, type Filiere } from '@passerelle/shared';
+import { FILIERE_LIBELLES, inscriptionInterimaireSchema, type Filiere } from '@releve/shared';
 
-useHead({ title: 'Inscription interimaire — Passerelle' });
+useHead({ title: 'Inscription interimaire — Relève' });
 
 const { inscrire } = useSession();
 

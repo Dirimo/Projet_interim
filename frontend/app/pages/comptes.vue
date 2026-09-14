@@ -5,8 +5,8 @@ import type {
   PageResultat,
   RoleUtilisateur,
   UtilisateurResume,
-} from '@passerelle/shared';
-import { MOT_DE_PASSE_LONGUEUR_MIN, ROLE_LIBELLES } from '@passerelle/shared';
+} from '@releve/shared';
+import { MOT_DE_PASSE_LONGUEUR_MIN, ROLE_LIBELLES } from '@releve/shared';
 
 const { requete } = useApi();
 const { utilisateur: moi } = useSession();

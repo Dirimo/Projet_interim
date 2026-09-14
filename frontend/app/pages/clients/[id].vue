@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { ClientDetail } from '@passerelle/shared';
-import { TYPE_CLIENT_LIBELLES, TYPE_LIEU_LIBELLES } from '@passerelle/shared';
+import type { ClientDetail } from '@releve/shared';
+import { TYPE_CLIENT_LIBELLES, TYPE_LIEU_LIBELLES } from '@releve/shared';
 
 const route = useRoute();
 const { requete } = useApi();

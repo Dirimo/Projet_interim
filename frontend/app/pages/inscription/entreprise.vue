@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { inscriptionEntrepriseSchema } from '@passerelle/shared';
+import { inscriptionEntrepriseSchema } from '@releve/shared';
 
-useHead({ title: 'Inscription entreprise — Passerelle' });
+useHead({ title: 'Inscription entreprise — Relève' });
 
 const { inscrire } = useSession();
 

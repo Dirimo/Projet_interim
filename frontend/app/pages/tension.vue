@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import type { Barometre } from '@passerelle/shared';
+import type { Barometre } from '@releve/shared';
 
-useHead({ title: 'Tension du marché — Passerelle' });
+useHead({ title: 'Tension du marché — Relève' });
 
 const { requete } = useApi();
 

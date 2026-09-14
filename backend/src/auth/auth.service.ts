@@ -6,7 +6,7 @@ import type {
   MotDePasseChange,
   ReponseConnexion,
   UtilisateurSession,
-} from '@passerelle/shared';
+} from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { hacherMotDePasse, verifierMotDePasse } from './mots-de-passe';
 import { SessionsService } from './sessions.service';

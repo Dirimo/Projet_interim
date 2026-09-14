@@ -6,7 +6,7 @@ import {
   type QualificationCreate,
   type QualificationListQuery,
   type QualificationResume,
-} from '@passerelle/shared';
+} from '@releve/shared';
 import { Roles } from '../auth/auth.decorateurs';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { QualificationsService } from './qualifications.service';

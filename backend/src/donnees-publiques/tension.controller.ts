@@ -2,7 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import type { Barometre } from '@passerelle/shared';
+import type { Barometre } from '@releve/shared';
 import { OffresService } from './offres.service';
 
 const barometreQuerySchema = z.object({

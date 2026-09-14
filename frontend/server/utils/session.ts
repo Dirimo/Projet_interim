@@ -1,8 +1,8 @@
 import type { H3Event } from 'h3';
-import type { ReponseConnexion } from '@passerelle/shared';
+import type { ReponseConnexion } from '@releve/shared';
 
-export const COOKIE_ACCES = 'passerelle_acces';
-export const COOKIE_SESSION = 'passerelle_session';
+export const COOKIE_ACCES = 'releve_acces';
+export const COOKIE_SESSION = 'releve_session';
 
 /**
  * Marge retiree a la duree de vie du cookie d'acces.

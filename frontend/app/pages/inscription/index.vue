@@ -1,5 +1,5 @@
 <script setup lang="ts">
-useHead({ title: 'Inscription - Passerelle' });
+useHead({ title: 'Inscription - Relève' });
 
 /**
  * Les deux cartes du Figma mappent les deux parcours deja routes : le profil

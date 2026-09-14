@@ -1,31 +1,92 @@
 <script setup lang="ts">
+import type { MissionDetail, PropositionResume } from '@releve/shared';
 import type { NomIcone } from '~/types/icone';
-import { trouverMission } from '~/data/missions-demo';
 
 const route = useRoute();
+const { requete } = useApi();
 
-const mission = computed(() => trouverMission(String(route.params.id)));
+const identifiant = String(route.params.id);
 
-if (!mission.value) {
+const { data: donnees } = await useAsyncData(`mission:${identifiant}`, () =>
+  requete<MissionDetail>(`/missions/${identifiant}`),
+);
+
+if (!donnees.value) {
   throw createError({ statusCode: 404, statusMessage: 'Mission introuvable', fatal: true });
 }
 
-useHead({ title: () => `${mission.value?.etablissement.nom ?? 'Mission'} - Passerelle` });
+/** Adaptation vers ce que la fiche du Figma affiche. */
+const mission = computed(() => {
+  const detail = donnees.value;
+  if (!detail) return undefined;
+
+  return {
+    id: detail.id,
+    etablissement: {
+      nom: detail.client.raisonSociale,
+      initiales: initiales(detail.client.raisonSociale),
+      localisation: `${detail.lieu.libelle} · ${detail.lieu.ville}`,
+    },
+    urgente: ["Aujourd'hui", 'Demain'].includes(jourCourt(detail.dateDebut)),
+    // La categorie du Figma etait un type d'etablissement. Le perimetre etant
+    // reduit aux SAAD, c'est le diplome exige qui porte l'information utile.
+    categorie: detail.qualificationRequise.code,
+    description: detail.description ?? detail.motifRecours,
+    prerequis: detail.prerequis,
+    dejaPostule: detail.dejaPostule,
+  };
+});
+
+useHead({ title: () => `${mission.value?.etablissement.nom ?? 'Mission'} - Relève` });
 
 /** Les quatre lignes de la carte « informations essentielles » du Figma. */
 const informations = computed<readonly { icone: NomIcone; libelle: string; valeur: string }[]>(
   () => {
-    const donnees = mission.value;
-    if (!donnees) return [];
+    const detail = donnees.value;
+    if (!detail) return [];
 
     return [
-      { icone: 'calendar', libelle: 'Date', valeur: donnees.dateComplete },
-      { icone: 'clock', libelle: 'Horaires', valeur: `${donnees.horaires} - ${donnees.duree}` },
-      { icone: 'euro', libelle: 'Remuneration indicative', valeur: donnees.remuneration },
-      { icone: 'map-pin', libelle: 'Lieu', valeur: donnees.adresse },
+      { icone: 'calendar', libelle: 'Date', valeur: dateComplete(detail.dateDebut) },
+      {
+        icone: 'clock',
+        libelle: 'Horaires',
+        valeur: `${horaires(detail.heureDebut, detail.heureFin)} - ${dureeLisible(detail.dureeHeures)}`,
+      },
+      {
+        icone: 'euro',
+        libelle: 'Remuneration indicative',
+        valeur: remuneration(detail.tauxHoraire),
+      },
+      { icone: 'map-pin', libelle: 'Lieu', valeur: detail.adresse },
     ];
   },
 );
+
+const envoi = ref(false);
+const erreur = ref('');
+
+/**
+ * La candidature est un appel API, pas un lien.
+ *
+ * La porte d'eligibilite est cote serveur : elle repond 403 avec le motif exact
+ * - diplome manquant, profil pas encore valide, filiere absente. On l'affiche
+ * tel quel plutot qu'un message generique, parce que le candidat doit savoir ce
+ * qui lui manque.
+ */
+async function candidater(): Promise<void> {
+  erreur.value = '';
+  envoi.value = true;
+
+  try {
+    await requete<PropositionResume>(`/missions/${identifiant}/candidatures`, { method: 'POST' });
+    await navigateTo(`/candidature/${identifiant}`);
+  } catch (cause) {
+    const corps = (cause as { data?: { message?: string } }).data;
+    erreur.value = corps?.message ?? 'Candidature impossible pour le moment.';
+  } finally {
+    envoi.value = false;
+  }
+}
 
 const partage = ref('');
 
@@ -100,10 +161,16 @@ async function partager(): Promise<void> {
       </section>
 
       <div class="actions">
-        <AppBouton icone="send" :to="`/candidature/${mission.id}`">
-          Je candidate a cette mission
+        <p v-if="erreur" class="refus" role="alert">{{ erreur }}</p>
+
+        <AppBouton v-if="mission.dejaPostule" icone="check" to="/suivi">
+          Candidature envoyee - voir le suivi
         </AppBouton>
-        <p class="reassurance">Reponse habituelle en moins de 10 min</p>
+        <AppBouton v-else icone="send" :desactive="envoi" @click="candidater()">
+          {{ envoi ? 'Envoi...' : 'Je candidate a cette mission' }}
+        </AppBouton>
+
+        <p class="reassurance">L etablissement repond generalement dans la journee</p>
       </div>
     </div>
   </section>
@@ -210,6 +277,16 @@ h2 {
 .actions {
   max-width: 360px;
   margin-top: 28px;
+}
+
+.refus {
+  margin: 0 0 4px;
+  padding: 10px 12px;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--eta);
+  background: var(--eta-soft);
+  border-radius: var(--r-champ);
 }
 
 .reassurance {

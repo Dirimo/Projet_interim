@@ -1,5 +1,5 @@
 import type { Request } from 'express';
-import type { RoleUtilisateur, UtilisateurSession } from '@passerelle/shared';
+import type { RoleUtilisateur, UtilisateurSession } from '@releve/shared';
 
 /**
  * Charge utile du JWT. Elle embarque le rattachement (agence / client /

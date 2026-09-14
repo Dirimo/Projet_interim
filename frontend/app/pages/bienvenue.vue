@@ -1,5 +1,5 @@
 <script setup lang="ts">
-useHead({ title: 'Passerelle' });
+useHead({ title: 'Relève' });
 
 /**
  * Le splash du Figma n'a pas d'action : il se contente d'exister le temps que
@@ -23,7 +23,7 @@ onBeforeUnmount(() => clearTimeout(minuterie));
   <section class="splash">
     <p class="marque">
       <AppIcon nom="heart-plus" :taille="64" />
-      <span class="sr-only">Passerelle</span>
+      <span class="sr-only">Relève</span>
     </p>
     <p class="attente">Ouverture de votre espace...</p>
   </section>

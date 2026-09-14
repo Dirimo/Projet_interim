@@ -14,7 +14,7 @@ import {
   type UtilisateurResume,
   type UtilisateurSession,
   type UtilisateurUpdate,
-} from '@passerelle/shared';
+} from '@releve/shared';
 import { hacherMotDePasse } from '../auth/mots-de-passe';
 import { SessionsService } from '../auth/sessions.service';
 import { PrismaService } from '../prisma/prisma.service';

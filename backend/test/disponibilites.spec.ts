@@ -16,7 +16,7 @@ const creneau = (jourSemaine: number, heureDebut: string, heureFin: string): Cre
 });
 
 /**
- * Le calcul de chevauchement est teste unitairement dans @passerelle/shared.
+ * Le calcul de chevauchement est teste unitairement dans @releve/shared.
  * Ici on verifie qu'il est bien branche sur la route, et que le remplacement du
  * planning fait ce qu'il annonce.
  */

@@ -1,5 +1,5 @@
 {
-  "name": "@passerelle/shared",
+  "name": "@releve/shared",
   "version": "0.1.0",
   "private": true,
   "description": "Schemas et types partages entre l'API et le front",

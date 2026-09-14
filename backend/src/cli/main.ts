@@ -59,7 +59,7 @@ function afficherRapport(rapport: {
 const programme = new Command();
 
 programme
-  .name('passerelle')
+  .name('releve')
   .description('Outils de collecte et de nettoyage des donnees publiques')
   .version('0.1.0');
 

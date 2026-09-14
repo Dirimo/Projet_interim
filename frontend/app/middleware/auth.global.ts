@@ -1,4 +1,4 @@
-import { ROLES_AGENCE, type RoleUtilisateur } from '@passerelle/shared';
+import { ROLES_AGENCE, type RoleUtilisateur } from '@releve/shared';
 
 /**
  * Tout est ferme par defaut. Une page ouverte se declare explicitement dans

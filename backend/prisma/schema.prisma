@@ -1,4 +1,4 @@
-// Schema Passerelle - voir docs/avant-projet.html
+// Schema Relève - voir docs/analyse-de-marche.html
 //
 // Trois invariants portes par ce schema :
 //  1. un seul CANDIDAT, avec un tableau `filieres` : beaucoup d'interimaires du
@@ -223,6 +223,11 @@ model Qualification {
   libelle  String
   filieres Filiere[]
 
+  // Code ROME du metier correspondant. C'est le pont vers les offres collectees
+  // sur France Travail : il permet de proposer a l'etablissement le taux median
+  // du marche au moment ou il fixe sa remuneration.
+  romeCode String?
+
   candidats QualificationCandidat[]
   missions  Mission[]
 
@@ -392,6 +397,11 @@ model Proposition {
   // Detail des composantes du score : le charge de recrutement doit pouvoir
   // comprendre pourquoi un candidat est troisieme et pas premier.
   detailScore Json?
+
+  // Mot d'accompagnement ecrit par le candidat au moment de postuler. Il est
+  // lu par l'etablissement sur la fiche du profil : c'est souvent lui qui
+  // departage deux candidatures equivalentes.
+  message String?
 
   statut     StatutProposition @default(ENVOYEE)
   envoyeeLe  DateTime          @default(now())

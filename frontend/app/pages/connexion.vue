@@ -1,5 +1,5 @@
 <script setup lang="ts">
-useHead({ title: 'Connexion - Passerelle' });
+useHead({ title: 'Connexion - Relève' });
 
 const { connexion } = useSession();
 
@@ -30,7 +30,7 @@ async function soumettre(): Promise<void> {
 <template>
   <section class="connexion">
     <!-- Le bloc de marque du Figma n'est pas repris : l'entete du site affiche
-         deja « Passerelle » juste au-dessus. -->
+         deja « Relève » juste au-dessus. -->
     <p class="accroche">Le soin, sans attendre</p>
     <h1>Ravi de vous revoir</h1>
     <p class="intro">
@@ -84,7 +84,7 @@ async function soumettre(): Promise<void> {
     </p>
 
     <p class="aide">
-      Demonstration : <code>admin@passerelle.example</code> / <code>Passerelle2026!</code> apres
+      Demonstration : <code>admin@releve.example</code> / <code>Releve2026!</code> apres
       <code>pnpm db:seed</code>.
     </p>
   </section>

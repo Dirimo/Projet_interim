@@ -7,7 +7,7 @@ import type {
   InscriptionInterimaire,
   ReponseConnexion,
   UtilisateurSession,
-} from '@passerelle/shared';
+} from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from './auth.service';
 import { hacherMotDePasse } from './mots-de-passe';

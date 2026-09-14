@@ -1,4 +1,4 @@
-import type { Connexion, ReponseConnexion, UtilisateurSession } from '@passerelle/shared';
+import type { Connexion, ReponseConnexion, UtilisateurSession } from '@releve/shared';
 
 /**
  * Point d'entree de la session. Les deux jetons sont poses en cookies

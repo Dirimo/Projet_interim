@@ -10,7 +10,7 @@ import type {
   LieuResume,
   LieuUpdate,
   PageResultat,
-} from '@passerelle/shared';
+} from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
 
 const avecComptes = {

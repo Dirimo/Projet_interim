@@ -4,9 +4,9 @@ import {
   STATUT_CANDIDAT_LIBELLES,
   TYPE_CLIENT_LIBELLES,
   type EspacePersonnel,
-} from '@passerelle/shared';
+} from '@releve/shared';
 
-useHead({ title: 'Mon espace — Passerelle' });
+useHead({ title: 'Mon espace — Relève' });
 
 const { requete } = useApi();
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { CandidatResume, Filiere, PageResultat } from '@passerelle/shared';
-import { FILIERE_LIBELLES } from '@passerelle/shared';
+import type { CandidatResume, Filiere, PageResultat } from '@releve/shared';
+import { FILIERE_LIBELLES } from '@releve/shared';
 
 const { requete } = useApi();
 

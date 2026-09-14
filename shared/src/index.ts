@@ -10,4 +10,6 @@ export * from './client';
 export * from './qualification';
 export * from './utilisateur';
 export * from './inscription';
+export * from './mission';
+export * from './proposition';
 export * from './tension';

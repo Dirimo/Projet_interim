@@ -4,7 +4,7 @@ import type {
   QualificationCreate,
   QualificationListQuery,
   QualificationResume,
-} from '@passerelle/shared';
+} from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()

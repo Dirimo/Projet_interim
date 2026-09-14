@@ -1,4 +1,4 @@
-import type { UtilisateurSession } from '@passerelle/shared';
+import type { UtilisateurSession } from '@releve/shared';
 
 /**
  * Session partagee par toute l'application.
@@ -8,7 +8,7 @@ import type { UtilisateurSession } from '@passerelle/shared';
  * composable ne connait donc que l'identite de la personne connectee.
  */
 export function useSession() {
-  const utilisateur = useState<UtilisateurSession | null>('passerelle:utilisateur', () => null);
+  const utilisateur = useState<UtilisateurSession | null>('releve:utilisateur', () => null);
   const requeteAvecCookies = useRequestFetch();
 
   const connecte = computed(() => utilisateur.value !== null);

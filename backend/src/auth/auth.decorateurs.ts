@@ -6,11 +6,11 @@ import {
   type CustomDecorator,
   type ExecutionContext,
 } from '@nestjs/common';
-import type { RoleUtilisateur, UtilisateurSession } from '@passerelle/shared';
+import type { RoleUtilisateur, UtilisateurSession } from '@releve/shared';
 import type { RequeteAuthentifiee } from './auth.types';
 
-export const CLE_PUBLIC = 'passerelle:public';
-export const CLE_ROLES = 'passerelle:roles';
+export const CLE_PUBLIC = 'releve:public';
+export const CLE_ROLES = 'releve:roles';
 
 /** Route accessible sans jeton (connexion, sonde de sante). */
 export const Public = (): CustomDecorator<string> => SetMetadata(CLE_PUBLIC, true);

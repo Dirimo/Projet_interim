@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ROLE_LIBELLES, ROLES_AGENCE, type RoleUtilisateur } from '@passerelle/shared';
+import { ROLE_LIBELLES, ROLES_AGENCE, type RoleUtilisateur } from '@releve/shared';
 
 const { utilisateur, deconnexion } = useSession();
 
@@ -24,7 +24,7 @@ async function sortir(): Promise<void> {
 <template>
   <div class="coque">
     <header class="entete">
-      <p class="marque">Passerelle</p>
+      <p class="marque">Relève</p>
       <p class="sous-titre">
         Interim aide a domicile
         <template v-if="utilisateur"

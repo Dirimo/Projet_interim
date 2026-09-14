@@ -5,7 +5,7 @@ import {
   type ExecutionContext,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import type { RoleUtilisateur } from '@passerelle/shared';
+import type { RoleUtilisateur } from '@releve/shared';
 import { CLE_ROLES } from './auth.decorateurs';
 import type { RequeteAuthentifiee } from './auth.types';
 

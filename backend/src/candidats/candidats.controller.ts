@@ -31,7 +31,7 @@ import {
   type QualificationCandidatCreate,
   type QualificationCandidatUpdate,
   type UtilisateurSession,
-} from '@passerelle/shared';
+} from '@releve/shared';
 import { AgenceCourante, Roles, UtilisateurCourant } from '../auth/auth.decorateurs';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { CandidatsService } from './candidats.service';

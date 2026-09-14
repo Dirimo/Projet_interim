@@ -1,4 +1,4 @@
-import type { ReponseConnexion, UtilisateurSession } from '@passerelle/shared';
+import type { ReponseConnexion, UtilisateurSession } from '@releve/shared';
 
 const PARCOURS = new Set(['entreprise', 'interimaire']);
 

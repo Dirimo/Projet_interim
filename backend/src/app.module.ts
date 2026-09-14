@@ -8,6 +8,8 @@ import { ClientsModule } from './clients/clients.module';
 import { QualificationsModule } from './qualifications/qualifications.module';
 import { UtilisateursModule } from './utilisateurs/utilisateurs.module';
 import { DonneesPubliquesModule } from './donnees-publiques/donnees-publiques.module';
+import { MissionsModule } from './missions/missions.module';
+import { PropositionsModule } from './propositions/propositions.module';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { DonneesPubliquesModule } from './donnees-publiques/donnees-publiques.mo
     QualificationsModule,
     UtilisateursModule,
     DonneesPubliquesModule,
+    MissionsModule,
+    PropositionsModule,
   ],
 })
 export class AppModule {}

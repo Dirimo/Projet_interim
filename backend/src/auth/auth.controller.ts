@@ -15,7 +15,7 @@ import {
   type Rafraichissement,
   type ReponseConnexion,
   type UtilisateurSession,
-} from '@passerelle/shared';
+} from '@releve/shared';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { AuthService } from './auth.service';
 import { InscriptionsService } from './inscriptions.service';

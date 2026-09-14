@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, type PipeTransform } from '@nestjs/com
 import { z, type ZodType } from 'zod';
 
 /**
- * Valide les entrees avec les schemas de @passerelle/shared : les memes
+ * Valide les entrees avec les schemas de @releve/shared : les memes
  * schemas servent aux formulaires Nuxt, les regles ne sont ecrites qu'une fois.
  */
 @Injectable()
