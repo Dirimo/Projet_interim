@@ -51,6 +51,7 @@ async function sortir(): Promise<void> {
           <template v-if="utilisateur.role === 'CANDIDAT'">
             <NuxtLink to="/missions">Missions</NuxtLink>
             <NuxtLink to="/suivi">Suivi</NuxtLink>
+            <NuxtLink to="/mon-profil">Mon profil</NuxtLink>
           </template>
           <template v-else-if="utilisateur.role === 'CLIENT'">
             <NuxtLink to="/etablissement">Accueil</NuxtLink>

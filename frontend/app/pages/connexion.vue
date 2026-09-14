@@ -20,7 +20,7 @@ async function soumettre(): Promise<void> {
     erreur.value =
       statut === 401
         ? 'Identifiants invalides.'
-        : "API injoignable. Verifier que l'API tourne (pnpm dev:api).";
+        : "API injoignable. Verifier que l'API tourne (pnpm dev:backend).";
   } finally {
     envoi.value = false;
   }

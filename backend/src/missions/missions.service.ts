@@ -18,6 +18,7 @@ import type {
   UtilisateurSession,
 } from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { distanceKm } from '../matching/score';
 
 /** Etats dans lesquels une mission cherche encore quelqu'un. */
 const ETATS_OUVERTS = [
@@ -40,6 +41,8 @@ const avecRelations = Prisma.validator<Prisma.MissionDefaultArgs>()({
         codePostal: true,
         adresse: true,
         consignes: true,
+        latitude: true,
+        longitude: true,
       },
     },
     qualificationRequise: { select: { id: true, code: true, libelle: true } },
@@ -48,6 +51,12 @@ const avecRelations = Prisma.validator<Prisma.MissionDefaultArgs>()({
 });
 
 type MissionChargee = Prisma.MissionGetPayload<typeof avecRelations>;
+
+/** Position du candidat connecte, pour calculer une distance sans requete par ligne. */
+interface PointCandidat {
+  latitude: number | null;
+  longitude: number | null;
+}
 
 /**
  * Ce que la session a le droit de voir.
@@ -132,7 +141,7 @@ function jourIso(date: Date): string {
 export class MissionsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private resume(mission: MissionChargee): MissionResume {
+  private resume(mission: MissionChargee, depuis?: PointCandidat): MissionResume {
     return {
       id: mission.id,
       reference: mission.reference,
@@ -156,7 +165,29 @@ export class MissionsService {
       motifRecours: mission.motifRecours,
       candidaturesEnAttente: mission._count.propositions,
       candidatRetenuId: mission.candidatRetenuId,
+      distanceKm: depuis
+        ? distanceKm(depuis.latitude, depuis.longitude, mission.lieu.latitude, mission.lieu.longitude)
+        : null,
     };
+  }
+
+  /**
+   * Position du candidat connecte, lue une fois pour toute une liste.
+   *
+   * Une requete par mission couterait autant d'allers-retours que de cartes
+   * affichees, pour une donnee qui ne change pas d'une ligne a l'autre.
+   */
+  private async positionCandidat(session: UtilisateurSession): Promise<PointCandidat | undefined> {
+    if (!session.candidatId) {
+      return undefined;
+    }
+
+    const fiche = await this.prisma.candidat.findUnique({
+      where: { id: session.candidatId },
+      select: { latitude: true, longitude: true },
+    });
+
+    return fiche ?? undefined;
   }
 
   /**
@@ -292,8 +323,10 @@ export class MissionsService {
       }),
     ]);
 
+    const depuis = await this.positionCandidat(session);
+
     return {
-      donnees: missions.map((mission) => this.resume(mission)),
+      donnees: missions.map((mission) => this.resume(mission, depuis)),
       total,
       page: query.page,
       limite: query.limite,
@@ -327,7 +360,7 @@ export class MissionsService {
       (candidatId !== null && mission.candidatRetenuId === candidatId);
 
     return {
-      ...this.resume(mission),
+      ...this.resume(mission, await this.positionCandidat(session)),
       description: mission.description,
       coefficient: mission.coefficient ? Number(mission.coefficient) : null,
       adresse: `${mission.lieu.adresse}, ${mission.lieu.codePostal} ${mission.lieu.ville}`,

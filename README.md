@@ -19,15 +19,17 @@ l'analyse concurrentielle est dans
 
 Le projet est un **POC de onze jours**. Deux sont consommés, neuf restent.
 
-| Jalon                                             | Périmètre                                                                        | État                                          |
-| ------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------- |
-| **J1–J2 — Socle et vivier**                       | Monorepo, authentification et rôles, référentiels, fiches candidats, back-office | **Livré**, 169 tests                          |
-| **J3–J5 — Comptes, mission, profil**              | Inscription des deux profils, dépôt de besoin, candidature, validation           | **Livré** · reste le profil détaillé, 2 j·dev |
-| J5–J7 — Données publiques et matching             | Import France Travail, baromètre, cache Redis, taux suggéré **faits**            | En cours · reste le matching, 3 j·dev         |
-| J7–J9 — Tableau de bord, SEO, no-code, conformité | Trois états de mission, pages publiques, n8n, RGAA / RGESN / RGPD                | À faire · 8 j·dev                             |
-| J10–J11 — Tests, livrables, soutenance            | Couverture transmise, étude de marché, chiffrage réel, pitch                     | À faire · 4 j·dev                             |
+| Jalon                                             | Périmètre                                                                                                 | État                 |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | -------------------- |
+| **J1–J2 — Socle et vivier**                       | Monorepo, authentification et rôles, référentiels, fiches candidats, back-office                          | **Livré**, 220 tests |
+| **J3–J5 — Comptes, mission, profil**              | Inscription des deux profils, dépôt de besoin, candidature, validation, espace personnel de l'intérimaire | **Livré**            |
+| **J5–J7 — Données publiques et matching**         | Import France Travail, baromètre, taux suggéré, moteur de matching à score explicable                     | **Livré**            |
+| J7–J9 — Tableau de bord, SEO, no-code, conformité | Trois états de mission, pages publiques, n8n, RGAA / RGESN / RGPD                                         | À faire · 8 j·dev    |
+| J10–J11 — Tests, livrables, soutenance            | Couverture transmise, étude de marché, chiffrage réel, pitch                                              | À faire · 4 j·dev    |
 
-**26 j·dev pour 27 disponibles** à trois personnes : la marge tient dans une journée. Le chiffrage
+**26 j·dev pour 27 disponibles** à trois personnes. Les trois premiers jalons sont livrés ; restent
+**12 j·dev** — tableau de bord, pages publiques et SEO, automatisations n8n, conformité, couverture
+et livrables de soutenance. Le chiffrage
 par fonctionnalité, le plan de repli et les livrables datés sont dans le cahier des charges figé à
 J+2, qui sert de référence pour l'écart entre estimé et réel.
 
@@ -161,6 +163,46 @@ chiffre qui aurait l'air complet.
 
 ---
 
+## Matching
+
+Le moteur répond à une question simple — **qui peut y aller, et dans quel ordre** — en deux temps
+qui ne se mélangent jamais.
+
+**1. Une porte binaire.** Elle écarte, avec un motif nommé : profil non validé par l'agence,
+filière absente, diplôme non détenu ou expiré, absence déclarée sur la période, mission déjà
+décrochée sur les mêmes dates, domicile au-delà du rayon déclaré, coordonnées manquantes. Rien ne
+sert de classer quelqu'un qui ne peut pas y aller — et l'écarté sait pourquoi.
+
+**2. Un score sur 100, toujours rendu décomposé.**
+
+| Composante    | Poids | Ce qui est mesuré                                                     |
+| ------------- | ----- | --------------------------------------------------------------------- |
+| Compétences   | 40    | Diplôme exigé détenu ; son ancienneté départage, plafonnée à dix ans  |
+| Zone          | 35    | Distance réelle au lieu, décroissance linéaire jusqu'au rayon déclaré |
+| Disponibilité | 25    | Part de la vacation réellement couverte par les créneaux déclarés     |
+
+Le total n'est jamais affiché sans ses trois lignes : un chargé de recrutement doit pouvoir dire à
+un candidat pourquoi il est troisième, et un score devient indéfendable dès qu'on le conteste sans
+pouvoir le décomposer.
+
+```
+89/100  Sophie Marchand
+        Competences    32/40  Diplome exige detenu, obtenu il y a 5 ans
+        Zone           32/35  A 3.2 km du lieu, pour un rayon declare de 35 km
+        Disponibilite  25/25  100 % du creneau couvert par les disponibilites declarees
+```
+
+Le barème vit dans `backend/src/matching/score.ts`, **sans dépendance à Prisma ni à Nest** : il se
+teste seul, avec des valeurs écrites à la main, et un poids se discute sans monter de base.
+
+Deux partis pris à connaître. La distance est calculée par haversine en mémoire plutôt que par
+PostGIS : à l'échelle d'un vivier d'agence c'est instantané et ça reste testable sans base. Et le
+score est **figé sur la candidature** au moment où elle est déposée : le recalculer à l'affichage
+le ferait bouger après coup — parce que le candidat a déplacé une disponibilité — et rendrait la
+décision de l'établissement incompréhensible a posteriori.
+
+---
+
 ## Design
 
 Les maquettes vivent dans le fichier Figma `9pCZmDqcx6nuuMRoYdLmNH`. Le fichier **ne déclare
@@ -206,7 +248,10 @@ backend/                          API NestJS
       mots-de-passe.ts            Argon2id
     candidats/                    vivier : fiche, qualifications, disponibilités
     clients/                      clients SAAD et lieux d'intervention
+    matching/                     porte d'éligibilité et score explicable
+      score.ts                    le barème, sans Prisma ni Nest : testable seul
     missions/                     dépôt de besoin, visibilité par profil, annulation
+    mon-profil/                   ce que l'intérimaire modifie sur sa propre fiche
     propositions/                 candidatures, décision du client, mission confirmée
     donnees-publiques/            France Travail : collecte, nettoyage, baromètre
       france-travail.client.ts    OAuth2 et pagination de l'API Offres d'emploi
@@ -226,6 +271,9 @@ backend/                          API NestJS
     roles.spec.ts                 gardes de rôle et routes publiques
     inscription.spec.ts           parcours des deux profils, permissions
     missions.spec.ts              la boucle complète, vue par les trois profils
+    score.spec.ts                 le barème seul, sans base ni réseau
+    matching.spec.ts              classement, écartés motivés, score figé
+    mon-profil.spec.ts            ce que le candidat ne peut pas s'accorder
     disponibilites.spec.ts        chevauchements, travail de nuit
     donnees-publiques.spec.ts     import, médianes, exposition API
     normalisation.spec.ts         salaires et empreintes, sans base ni réseau
@@ -280,6 +328,7 @@ shared/                           @releve/shared — contrat API ↔ front
     candidat.ts, disponibilite.ts
     client.ts, lieu.ts, qualification.ts
     mission.ts, proposition.ts    dépôt de besoin, candidature, décision
+    matching.ts, profil.ts        score décomposé, espace personnel
     tension.ts                    baromètre et suggestion de taux
     pagination.ts
   test/                           23 tests unitaires des règles partagées
@@ -458,6 +507,7 @@ Base : `http://localhost:3001/api`. Toutes les routes sauf mention contraire exi
 | `POST`  | `/missions`                     | back-office ou client         |
 | `PATCH` | `/missions/:id`                 | back-office ou client         |
 | `POST`  | `/missions/:id/annuler`         | back-office ou client         |
+| `GET`   | `/missions/:id/candidats`       | back-office ou client         |
 | `POST`  | `/missions/:id/candidatures`    | candidat                      |
 
 **Ce que chaque profil voit est décidé dans le service, jamais dans le contrôleur.** L'agence voit
@@ -480,6 +530,27 @@ seule la décision du client manque. Valider en retient un, écarte les autres e
 mission **en une transaction** — sinon deux validations concurrentes laisseraient deux personnes
 persuadées d'avoir la mission.
 
+### Mon profil — espace de l'intérimaire
+
+| Méthode  | Route                                   | Accès    |
+| -------- | --------------------------------------- | -------- |
+| `GET`    | `/mon-profil`                           | candidat |
+| `GET`    | `/mon-profil/completude`                | candidat |
+| `PATCH`  | `/mon-profil`                           | candidat |
+| `PUT`    | `/mon-profil/disponibilites`            | candidat |
+| `POST`   | `/mon-profil/diplomes`                  | candidat |
+| `DELETE` | `/mon-profil/diplomes/:qualificationId` | candidat |
+
+Routes séparées de `/candidats` plutôt que des gardes assouplies : le back-office garde ses règles
+intactes, et ce qu'un candidat peut toucher se lit d'un coup d'œil sur un seul fichier. **Ce qui en
+est absent l'est pour une raison** : le `statut` appartient à l'agence — se rendre actif soi-même
+viderait la vérification de son sens ; l'adresse e-mail est l'identifiant de connexion ; la visite
+médicale et la vaccination sont constatées sur pièce, jamais déclarées. Un diplôme déclaré naît
+**non vérifié** et ne rend éligible à rien tant que l'agence ne l'a pas contrôlé.
+
+`/mon-profil/completude` répond à la question que pose tout inscrit — pourquoi aucune mission ne
+m'est proposée — en listant les manques dans l'ordre où ils bloquent.
+
 ### Tension du marché
 
 | Méthode | Route                 | Accès       |
@@ -501,7 +572,7 @@ persuadées d'avoir la mission.
 | `pnpm dev`                               | Contracts compilés, puis API et front en parallèle  |
 | `pnpm dev:backend` / `pnpm dev:frontend` | Un seul des deux                                    |
 | `pnpm build`                             | Contracts, puis API, puis front                     |
-| `pnpm test`                              | Contrats puis intégration API (169 tests)           |
+| `pnpm test`                              | Contrats puis intégration API (220 tests)           |
 | `pnpm test:shared`                       | Règles partagées seules, sans base                  |
 | `pnpm test:backend`                      | Intégration API seule                               |
 | `pnpm typecheck`                         | TypeScript sur les trois paquets, tests compris     |
@@ -525,15 +596,17 @@ coupure, à poser si le contexte l'exige.
 ne se partage pas entre instances. Dès que l'API tournera sur plus d'une instance, il faudra la
 faire passer par Redis, déjà présent dans le `docker-compose`.
 
-**Le géomatching n'est pas implémenté.** La colonne PostGIS `geom` existe sur `Candidat` et
-`LieuIntervention` mais n'est alimentée par rien. Conséquences visibles : le filtre « À proximité »
-du tableau des missions ne trie pas encore, et le profil d'un candidat s'affiche sans score de
-correspondance — `Proposition.score` reste `null`. Un pourcentage inventé serait pire qu'une case
-vide sur une décision de recrutement.
+**La colonne PostGIS `geom` n'est toujours alimentée par rien.** Le matching calcule les distances
+par haversine en mémoire, ce qui suffit largement à l'échelle d'un vivier d'agence. `geom` et son
+index attendent un volume qui les justifie ; d'ici là, c'est du schéma mort et il faut le dire.
 
-**La porte d'éligibilité est binaire, pas scorée.** Pour postuler, il faut le diplôme exigé vérifié
-et non expiré, la filière au profil, et un profil validé par l'agence. Le refus dit lequel des
-trois manque, au lieu de faire disparaître la mission de la liste.
+**Les adresses ne sont pas géocodées automatiquement.** Latitude et longitude se saisissent à la
+main, et une fiche sans coordonnées est **écartée** du matching — jamais placée à distance nulle,
+ce qui la ferait remonter en tête du classement. Brancher un géocodeur sur l'adresse est le
+prochain gain évident.
+
+**Aucune notification.** Un candidat retenu ne l'apprend qu'en ouvrant son suivi, un établissement
+qu'en ouvrant son accueil. C'est ce que les automatisations n8n du jalon suivant doivent couvrir.
 
 **`connexionSchema` accepte 8 caractères** là où la création en exige 12, pour ne pas bloquer un
 compte historique.
@@ -553,10 +626,13 @@ rapport de couverture est un livrable attendu.
 
 ### Piège de développement
 
-Nuxt pré-charge `@releve/shared` au démarrage. Après toute modification du paquet
-`contracts`, **redémarrer le serveur Nuxt** : sinon une page tombe en 500 avec un
-`Cannot convert undefined or null to object` sur le symbole nouvellement ajouté. Si le redémarrage
-ne suffit pas, supprimer `frontend/node_modules/.vite`.
+Nuxt pré-charge `@releve/shared` au démarrage. Après toute modification du paquet partagé,
+**redémarrer le serveur Nuxt** : sinon une page tombe en 500 sur le symbole nouvellement ajouté.
+
+Le cas le plus vicieux — `doesn't provide an export named` sur un symbole pourtant bien exporté —
+vient de l'interop CommonJS de Vite sur un paquet lié par le workspace. Il est désormais réglé à
+la source par `vite.optimizeDeps.include` dans `nuxt.config.ts`, qui force le pré-bundling. Si un
+symptôme proche réapparaît, supprimer `frontend/node_modules/.vite` puis relancer.
 
 ---
 

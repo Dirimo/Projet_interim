@@ -37,27 +37,28 @@ const decidee = computed(() => proposition.value?.statut !== 'ACCEPTEE_CANDIDAT'
 const retenu = computed(() => proposition.value?.statut === 'VALIDEE_CLIENT');
 
 /**
- * Le score du Figma etait un pourcentage de correspondance. Le moteur de
- * matching n'existe pas encore : plutot qu'un chiffre invente, on affiche ce
- * qui est reellement verifie - diplome exige detenu, profil valide par
- * l'agence. Le champ `score` de l'API reste null jusqu'au branchement.
+ * Le score, tel que l'etablissement doit pouvoir le discuter.
+ *
+ * On n'affiche jamais le total seul : c'est sa decomposition qui permet de dire
+ * pourquoi ce profil-la remonte, et de repondre a qui le conteste. Les
+ * candidatures anterieures au moteur n'ont pas de score et l'ecran le dit,
+ * plutot que d'afficher un zero trompeur.
  */
 const correspondance = computed(() => {
   const donnees = proposition.value;
-  if (!donnees) return undefined;
+  if (!donnees || donnees.score === null) return undefined;
 
-  if (donnees.score !== null) {
-    return {
-      valeur: `${Math.round(donnees.score)}%`,
-      titre: 'Correspondance calculee',
-      justification: 'Score du moteur de matching.',
-    };
-  }
+  const total = Math.round(donnees.score);
 
   return {
-    valeur: donnees.candidat.etiquettes.length.toString(),
-    titre: 'Verifications au vert',
-    justification: `${donnees.candidat.qualification ?? 'Diplome'} verifie par l agence. Le score de correspondance arrivera avec le moteur de matching.`,
+    valeur: `${total}%`,
+    titre:
+      total >= 80
+        ? 'Excellente correspondance'
+        : total >= 55
+          ? 'Bonne correspondance'
+          : 'Correspondance partielle',
+    composantes: donnees.detailScore?.composantes ?? [],
   };
 });
 
@@ -104,8 +105,24 @@ async function decider(action: 'valider' | 'refuser'): Promise<void> {
         <p class="score">{{ correspondance.valeur }}</p>
         <div>
           <p class="titre-score">{{ correspondance.titre }}</p>
-          <p class="justification">{{ correspondance.justification }}</p>
+          <p class="justification">Score calcule a la candidature, sur 100.</p>
         </div>
+      </AppCarte>
+
+      <AppCarte v-if="correspondance?.composantes.length" class="bareme">
+        <h2>Comment ce score se decompose</h2>
+        <ul>
+          <li v-for="part in correspondance.composantes" :key="part.cle">
+            <div class="ligne">
+              <span class="quoi">{{ part.libelle }}</span>
+              <span class="chiffre">{{ part.points }} / {{ part.sur }}</span>
+            </div>
+            <div class="jauge">
+              <span :style="{ width: `${Math.round((part.points / part.sur) * 100)}%` }" />
+            </div>
+            <p class="pourquoi">{{ part.explication }}</p>
+          </li>
+        </ul>
       </AppCarte>
 
       <AppCarte v-if="mission" class="mission">
@@ -165,6 +182,61 @@ async function decider(action: 'valider' | 'refuser'): Promise<void> {
 </template>
 
 <style scoped>
+.bareme h2 {
+  margin: 0 0 12px;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.bareme ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.bareme .ligne {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.bareme .quoi {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.bareme .chiffre {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.bareme .jauge {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  overflow: hidden;
+  margin: 5px 0 4px;
+}
+
+.bareme .jauge span {
+  display: block;
+  height: 100%;
+  background: var(--dom);
+  border-radius: 3px;
+}
+
+.bareme .pourquoi {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
 .mission {
   display: flex;
   flex-direction: column;

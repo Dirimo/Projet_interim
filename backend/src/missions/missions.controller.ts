@@ -2,11 +2,14 @@ import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from 
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import {
   candidatureCreateSchema,
+  classementQuerySchema,
   missionCreateSchema,
   missionListQuerySchema,
   missionUpdateSchema,
   ROLES_AGENCE,
   type CandidatureCreate,
+  type ClassementMission,
+  type ClassementQuery,
   type MissionCreate,
   type MissionDetail,
   type MissionListQuery,
@@ -21,6 +24,7 @@ import {
 import { ForbiddenException } from '@nestjs/common';
 import { Roles, UtilisateurCourant } from '../auth/auth.decorateurs';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { MatchingService } from '../matching/matching.service';
 import { PropositionsService } from '../propositions/propositions.service';
 import { MissionsService } from './missions.service';
 
@@ -37,6 +41,7 @@ export class MissionsController {
   constructor(
     private readonly missions: MissionsService,
     private readonly propositions: PropositionsService,
+    private readonly matching: MatchingService,
   ) {}
 
   @Get()
@@ -110,6 +115,19 @@ export class MissionsController {
     @UtilisateurCourant() session: UtilisateurSession,
   ): Promise<MissionResume> {
     return this.missions.annuler(id, session);
+  }
+
+  @Get(':id/candidats')
+  @Roles(...ROLES_AGENCE, 'CLIENT')
+  @ApiOperation({ summary: 'Classer le vivier pour cette mission, score explique' })
+  @ApiQuery({ name: 'ecartes', required: false, type: Boolean })
+  @ApiQuery({ name: 'limite', required: false, type: Number })
+  classer(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query(new ZodValidationPipe(classementQuerySchema)) query: ClassementQuery,
+    @UtilisateurCourant() session: UtilisateurSession,
+  ): Promise<ClassementMission> {
+    return this.matching.classer(id, query, session);
   }
 
   @Post(':id/candidatures')

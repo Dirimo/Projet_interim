@@ -48,7 +48,7 @@ function siretLisible(siret: string): string {
     </form>
 
     <p v-if="error" class="alerte">
-      API injoignable. Lancer <code>pnpm infra:up</code> puis <code>pnpm dev:api</code>.
+      API injoignable. Lancer <code>pnpm infra:up</code> puis <code>pnpm dev:backend</code>.
     </p>
 
     <p v-else-if="chargement" class="vide">Chargement...</p>

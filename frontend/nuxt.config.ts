@@ -9,6 +9,14 @@ export default defineNuxtConfig({
     // refaire un appel direct, qui court-circuiterait les cookies httpOnly.
     apiBase: process.env.NUXT_API_BASE ?? 'http://localhost:3001/api',
   },
+  // `@releve/shared` est compile en CommonJS et lie par le workspace : Vite le
+  // traite alors comme du source et rate ses exports nommes, avec une erreur du
+  // type « doesn't provide an export named ». Le pre-bundler explicitement
+  // supprime le piege - plus besoin de vider node_modules/.vite a chaque ajout
+  // dans le paquet partage.
+  vite: {
+    optimizeDeps: { include: ['@releve/shared'] },
+  },
   typescript: {
     strict: true,
   },

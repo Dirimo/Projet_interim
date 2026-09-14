@@ -58,7 +58,7 @@ const chargement = computed(() => status.value === 'pending');
     </form>
 
     <p v-if="error" class="alerte">
-      API injoignable. Lancer <code>pnpm infra:up</code> puis <code>pnpm dev:api</code>, et verifier
+      API injoignable. Lancer <code>pnpm infra:up</code> puis <code>pnpm dev:backend</code>, et verifier
       que la base est migree (<code>pnpm db:migrate</code>).
     </p>
 

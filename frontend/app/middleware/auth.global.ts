@@ -27,7 +27,7 @@ const PAGES_EXTERNES = new Set(['/mon-espace', '/mon-compte']);
  * saurait pas couvrir.
  */
 const SECTIONS_PAR_ROLE: Partial<Record<RoleUtilisateur, readonly string[]>> = {
-  CANDIDAT: ['/missions', '/suivi', '/candidature'],
+  CANDIDAT: ['/missions', '/suivi', '/candidature', '/mon-profil'],
   CLIENT: ['/etablissement'],
 };
 

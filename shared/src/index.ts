@@ -12,4 +12,6 @@ export * from './utilisateur';
 export * from './inscription';
 export * from './mission';
 export * from './proposition';
+export * from './matching';
+export * from './profil';
 export * from './tension';

@@ -9,10 +9,10 @@ const { utilisateur } = useSession();
 /**
  * Les trois filtres de la maquette, traduits en intentions reelles.
  *
- * « A proximite » ne trie encore rien : le geomatching PostGIS n'est pas
- * branche, et un tri par distance invente serait pire qu'un tri neutre. Le
- * libelle est conserve parce que la fonction viendra, le comportement est
- * honnete en attendant.
+ * « A proximite » trie desormais par distance reelle entre le domicile du
+ * candidat et le lieu d'intervention. Les missions dont la distance n'est pas
+ * mesurable passent en fin de liste plutot qu'en tete : une distance inconnue
+ * n'est pas une distance nulle.
  */
 const FILTRES = ['A proximite', "Aujourd'hui", 'Mieux remunerees'] as const;
 
@@ -78,11 +78,20 @@ const missions = computed(() => {
     horaires: horaires(mission.heureDebut, mission.heureFin),
     tauxHoraire: tauxCourt(mission.tauxHoraire),
     taux: mission.tauxHoraire ?? 0,
+    distance: mission.distanceKm,
   }));
 
-  return filtre.value === 'Mieux remunerees'
-    ? [...cartes].sort((a, b) => b.taux - a.taux)
-    : cartes;
+  if (filtre.value === 'Mieux remunerees') {
+    return [...cartes].sort((a, b) => b.taux - a.taux);
+  }
+
+  if (filtre.value === 'A proximite') {
+    return [...cartes].sort(
+      (a, b) => (a.distance ?? Number.POSITIVE_INFINITY) - (b.distance ?? Number.POSITIVE_INFINITY),
+    );
+  }
+
+  return cartes;
 });
 
 const prenom = computed(() => prenomAffiche(utilisateur.value?.email));
@@ -143,7 +152,12 @@ const prenom = computed(() => prenomAffiche(utilisateur.value?.email));
               <AppAvatar :initiales="mission.etablissement.initiales" />
               <div class="copie">
                 <p class="nom">{{ mission.etablissement.nom }}</p>
-                <p class="lieu">{{ mission.etablissement.localisation }}</p>
+                <p class="lieu">
+                  {{ mission.etablissement.localisation }}
+                  <template v-if="mission.distance !== null">
+                    &middot; {{ mission.distance }} km
+                  </template>
+                </p>
               </div>
               <AppBadge v-if="mission.urgente" teinte="corail">Urgent</AppBadge>
             </div>

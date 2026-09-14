@@ -96,6 +96,13 @@ export interface MissionResume {
 
   /** Compteur de candidatures en attente de decision du client. */
   candidaturesEnAttente: number;
+  /**
+   * Distance entre le candidat connecte et le lieu d'intervention.
+   *
+   * Renseignee pour une session candidat seulement, et null si l'une des deux
+   * adresses n'est pas geocodee - on ne devine pas une distance.
+   */
+  distanceKm: number | null;
   candidatRetenuId: string | null;
 }
 

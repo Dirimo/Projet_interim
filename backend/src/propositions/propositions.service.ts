@@ -12,9 +12,11 @@ import type {
   PointFortCandidat,
   PropositionListQuery,
   PropositionResume,
+  ScoreDetail,
   UtilisateurSession,
 } from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { MatchingService } from '../matching/matching.service';
 import { dureeHeures, MissionsService } from '../missions/missions.service';
 
 /** Etats dans lesquels une mission accepte encore des candidatures. */
@@ -97,6 +99,7 @@ export class PropositionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly missions: MissionsService,
+    private readonly matching: MatchingService,
   ) {}
 
   /**
@@ -169,6 +172,7 @@ export class PropositionsService {
       motifRefus: proposition.motifRefus,
       message: proposition.message,
       score: proposition.score ? Number(proposition.score) : null,
+      detailScore: (proposition.detailScore as ScoreDetail | null) ?? null,
       candidat: this.profil(proposition.candidat, mission.qualificationRequise.code),
       mission: {
         id: mission.id,
@@ -188,6 +192,9 @@ export class PropositionsService {
         motifRecours: mission.motifRecours,
         candidaturesEnAttente: mission._count.propositions,
         candidatRetenuId: mission.candidatRetenuId,
+        // La distance n'a de sens que depuis une fiche candidat donnee : sur
+        // une candidature, c'est le score qui porte deja cette information.
+        distanceKm: null,
       },
     };
   }
@@ -257,6 +264,12 @@ export class PropositionsService {
       );
     }
 
+    // Le score est fige au moment de la candidature. Le recalculer a
+    // l'affichage le ferait bouger apres coup - parce que le candidat a deplace
+    // une disponibilite - et rendrait la decision de l'etablissement
+    // incomprehensible a posteriori.
+    const score = await this.matching.scorer(missionId, candidatId);
+
     try {
       const proposition = await this.prisma.proposition.create({
         data: {
@@ -265,6 +278,8 @@ export class PropositionsService {
           statut: 'ACCEPTEE_CANDIDAT',
           repondueLe: new Date(),
           message: message ?? null,
+          score: score?.total ?? null,
+          detailScore: score ? (score as unknown as Prisma.InputJsonValue) : undefined,
         },
         ...avecRelations,
       });

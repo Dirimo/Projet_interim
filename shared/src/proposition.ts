@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { statutPropositionSchema, type StatutProposition } from './enums';
+import type { ScoreDetail } from './matching';
 import { paginationQuerySchema } from './pagination';
 import type { MissionResume } from './mission';
 
@@ -67,8 +68,10 @@ export interface PropositionResume {
   motifRefus: string | null;
   message: string | null;
 
-  /** Null tant que le moteur de matching n'est pas branche. */
+  /** Score fige au moment de la candidature, sur 100. */
   score: number | null;
+  /** Decomposition du score : c'est elle qui rend la decision explicable. */
+  detailScore: ScoreDetail | null;
   candidat: CandidatPropose;
   mission: MissionResume;
 }
