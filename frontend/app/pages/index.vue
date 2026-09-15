@@ -1,10 +1,8 @@
 <script setup lang="ts">
-import type { CandidatResume, Filiere, PageResultat } from '@releve/shared';
-import { FILIERE_LIBELLES } from '@releve/shared';
+import type { CandidatResume, PageResultat } from '@releve/shared';
 
 const { requete } = useApi();
 
-const filiere = ref<Filiere | ''>('');
 const recherche = ref('');
 
 const { data, status, error, refresh } = await useAsyncData<PageResultat<CandidatResume>>(
@@ -12,12 +10,11 @@ const { data, status, error, refresh } = await useAsyncData<PageResultat<Candida
   () =>
     requete<PageResultat<CandidatResume>>('/candidats', {
       query: {
-        ...(filiere.value ? { filiere: filiere.value } : {}),
         ...(recherche.value ? { recherche: recherche.value } : {}),
         limite: 20,
       },
     }),
-  { watch: [filiere] },
+  { watch: [recherche] },
 );
 
 const candidats = computed(() => data.value?.donnees ?? []);
@@ -28,22 +25,10 @@ const chargement = computed(() => status.value === 'pending');
   <section class="vivier">
     <div class="titre">
       <h1>Vivier candidats</h1>
-      <p class="compte">
-        {{ data?.total ?? 0 }} candidat(s)
-        <span v-if="filiere"> &middot; filiere {{ FILIERE_LIBELLES[filiere] }}</span>
-      </p>
+      <p class="compte">{{ data?.total ?? 0 }} candidat(s)</p>
     </div>
 
     <form class="filtres" @submit.prevent="refresh()">
-      <label>
-        <span>Filiere</span>
-        <select id="filtre-filiere" v-model="filiere">
-          <option value="">Toutes</option>
-          <option value="DOMICILE">Domicile</option>
-          <option value="ETABLISSEMENT">Etablissement</option>
-        </select>
-      </label>
-
       <label class="grandir">
         <span>Recherche</span>
         <input
@@ -77,17 +62,6 @@ const chargement = computed(() => status.value === 'pending');
           <p class="lieu">
             {{ candidat.codePostal }} {{ candidat.ville }} &middot; rayon {{ candidat.rayonKm }} km
           </p>
-        </div>
-
-        <div class="pastilles">
-          <span
-            v-for="f in candidat.filieres"
-            :key="f"
-            class="pastille"
-            :class="f === 'DOMICILE' ? 'dom' : 'eta'"
-          >
-            {{ FILIERE_LIBELLES[f] }}
-          </span>
         </div>
 
         <p class="qualifs">

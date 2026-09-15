@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { filiereSchema, statutMissionSchema, type Filiere, type StatutMission } from './enums';
+import { statutMissionSchema, type StatutMission } from './enums';
 import { MOTIF_DATE_ISO, MOTIF_HEURE } from './motifs';
 import { paginationQuerySchema } from './pagination';
 
@@ -15,7 +15,6 @@ export const missionCreateSchema = z
   .object({
     lieuId: z.string().uuid('Lieu invalide'),
     qualificationRequiseId: z.string().uuid('Qualification invalide'),
-    filiere: filiereSchema,
 
     dateDebut: z.string().trim().regex(MOTIF_DATE_ISO, 'Date invalide (format AAAA-MM-JJ)'),
     dateFin: z.string().trim().regex(MOTIF_DATE_ISO, 'Date invalide (format AAAA-MM-JJ)'),
@@ -49,7 +48,6 @@ export type MissionCreate = z.infer<typeof missionCreateSchema>;
 export const missionUpdateSchema = z.object({
   lieuId: z.string().uuid().optional(),
   qualificationRequiseId: z.string().uuid().optional(),
-  filiere: filiereSchema.optional(),
   dateDebut: z.string().trim().regex(MOTIF_DATE_ISO).optional(),
   dateFin: z.string().trim().regex(MOTIF_DATE_ISO).optional(),
   heureDebut: z.string().trim().regex(MOTIF_HEURE).optional(),
@@ -77,7 +75,6 @@ export interface MissionResume {
   id: string;
   reference: string;
   statut: StatutMission;
-  filiere: Filiere;
 
   client: { id: string; raisonSociale: string };
   lieu: { id: string; libelle: string; ville: string; codePostal: string };
@@ -103,6 +100,18 @@ export interface MissionResume {
    * adresses n'est pas geocodee - on ne devine pas une distance.
    */
   distanceKm: number | null;
+
+  /**
+   * Le lieu est-il au-dela du rayon declare par le candidat connecte ?
+   *
+   * `null` quand la question ne se pose pas : session qui n'est pas celle d'un
+   * candidat, ou distance non mesurable. Rendu par le serveur plutot que
+   * recalcule par le front, parce que c'est la meme regle qui decide de
+   * l'affichage ici et du refus a la candidature — deux copies finiraient par
+   * diverger, et on afficherait un avertissement sur un ecran tout en laissant
+   * postuler sur l'autre.
+   */
+  horsRayon: boolean | null;
   candidatRetenuId: string | null;
 }
 
@@ -146,7 +155,6 @@ export interface OptionsPublication {
     id: string;
     code: string;
     libelle: string;
-    filieres: Filiere[];
     romeCode: string | null;
   }[];
 }

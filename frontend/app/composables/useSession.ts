@@ -21,17 +21,14 @@ export function useSession() {
   }
 
   /**
-   * Inscription des deux profils.
+   * Inscription d'un intervenant — le seul parcours public.
    *
    * Elle n'ouvre aucune session, et ne touche donc pas `utilisateur` : le
    * compte existe, mais l'acces attend que l'adresse soit confirmee. La page
    * recoit l'adresse a afficher sur l'ecran d'attente, rien de plus.
    */
-  async function inscrire(
-    parcours: 'entreprise' | 'interimaire',
-    donnees: Record<string, unknown>,
-  ): Promise<ReponseInscription> {
-    return $fetch<ReponseInscription>(`/bff/auth/inscription/${parcours}`, {
+  async function inscrire(donnees: Record<string, unknown>): Promise<ReponseInscription> {
+    return $fetch<ReponseInscription>('/bff/auth/inscription/interimaire', {
       method: 'POST',
       body: donnees,
     });
@@ -56,6 +53,25 @@ export function useSession() {
   /** Renvoi du lien. Toujours silencieux : l'API ne dit jamais si l'adresse existe. */
   async function renvoyerVerification(email: string): Promise<void> {
     await $fetch('/bff/auth/verification/renvoyer', { method: 'POST', body: { email } });
+  }
+
+  /**
+   * Demande d'un lien de reinitialisation. Silencieuse elle aussi : l'API ne
+   * dit jamais si l'adresse correspond a un compte.
+   */
+  async function demanderReinitialisation(email: string): Promise<void> {
+    await $fetch('/bff/auth/mot-de-passe/oublie', { method: 'POST', body: { email } });
+  }
+
+  /**
+   * Pose du nouveau mot de passe depuis le lien recu. N'ouvre pas de session :
+   * la personne enchaine sur l'ecran de connexion.
+   */
+  async function reinitialiserMotDePasse(jeton: string, nouveau: string): Promise<void> {
+    await $fetch('/bff/auth/mot-de-passe/reinitialiser', {
+      method: 'POST',
+      body: { jeton, nouveau },
+    });
   }
 
   /** Relit la session depuis l'API ; laisse `utilisateur` a null si elle est morte. */
@@ -84,6 +100,8 @@ export function useSession() {
     inscrire,
     confirmerEmail,
     renvoyerVerification,
+    demanderReinitialisation,
+    reinitialiserMotDePasse,
     rafraichir,
     deconnexion,
     oublier,

@@ -54,44 +54,41 @@ async function renvoyer(): Promise<void> {
 
 <template>
   <section class="connexion">
-    <!-- Le bloc de marque du Figma n'est pas repris : l'entete du site affiche
+    <!-- Le bloc de marque du canvas n'est pas repris : l'entete du site affiche
          deja « Relève » juste au-dessus. -->
     <p class="accroche">Le soin, sans attendre</p>
     <h1>Ravi de vous revoir</h1>
-    <p class="intro">
-      Retrouvez vos missions, vos disponibilites et vos echanges la ou vous les aviez laisses.
-    </p>
+    <p class="intro">Connectez-vous pour suivre vos candidatures et vos missions à venir.</p>
 
-    <!--
-      La maquette ne dessine que deux rectangles vides : ils sont repris ici en
-      vrais champs, avec un libelle masque pour les lecteurs d'ecran, puisque le
-      design ne prevoit aucune place pour un libelle visible.
-    -->
     <AppCarte class="formulaire">
       <form @submit.prevent="soumettre">
-        <label class="champ">
-          <span class="sr-only">Adresse e-mail</span>
+        <div class="champ">
+          <label for="email">Adresse mail</label>
           <input
             id="email"
             v-model="email"
             type="email"
             autocomplete="username"
-            placeholder="Adresse e-mail"
+            placeholder="johndoe@gmail.com"
             required
           />
-        </label>
+        </div>
 
-        <label class="champ">
-          <span class="sr-only">Mot de passe</span>
+        <div class="champ">
+          <label for="mot-de-passe">Mot de passe</label>
           <input
             id="mot-de-passe"
             v-model="motDePasse"
             type="password"
             autocomplete="current-password"
-            placeholder="Mot de passe"
+            placeholder="••••••••••"
             required
           />
-        </label>
+        </div>
+
+        <p class="oubli">
+          <NuxtLink to="/mot-de-passe-oublie">Mot de passe oublié ?</NuxtLink>
+        </p>
 
         <p v-if="erreur" class="erreur">{{ erreur }}</p>
 
@@ -112,18 +109,18 @@ async function renvoyer(): Promise<void> {
         <AppBouton type="submit" :desactive="envoi">
           {{ envoi ? 'Connexion...' : 'Se connecter' }}
         </AppBouton>
+
+        <AppBouton variante="secondaire" to="/inscription">S'inscrire</AppBouton>
       </form>
     </AppCarte>
 
-    <AppBouton variante="secondaire" to="/inscription" class="inscrire">S'inscrire</AppBouton>
-
     <p class="legal">
       En continuant, vous acceptez nos <a href="#">conditions d'utilisation</a> et notre
-      <a href="#">politique de confidentialite</a>.
+      <a href="#">politique de confidentialité</a>.
     </p>
 
     <p class="aide">
-      Demonstration : <code>admin@releve.example</code> / <code>Releve2026!</code> apres
+      Démonstration : <code>admin@releve.example</code> / <code>Releve2026!</code> après
       <code>pnpm db:seed</code>.
     </p>
   </section>
@@ -131,35 +128,42 @@ async function renvoyer(): Promise<void> {
 
 <style scoped>
 .connexion {
-  max-width: 420px;
+  padding-inline: 28px;
+  max-width: 460px;
   margin: 0 auto;
-  padding-block: 48px 0;
+  padding-block: 72px 100px;
 }
 
 .accroche {
-  margin: 0 0 10px;
-  font-size: 12px;
-  font-weight: 700;
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--eta);
 }
 
 h1 {
-  margin: 0 0 12px;
-  font-size: 30px;
-  font-weight: 400;
-  line-height: 1.12;
+  margin: 0 0 10px;
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
 }
 
 .intro {
-  margin: 0 0 24px;
-  font-size: 14px;
-  line-height: 1.5;
+  margin: 0 0 32px;
+  font-size: 15.5px;
+  line-height: 1.6;
   color: var(--muted);
 }
 
+/* Le canvas dessine la carte de connexion plus large et plus arrondie que la
+ * carte generique, et la cerne d'un filet — d'ou les trois surcharges. */
 .formulaire {
-  padding: 20px;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
 }
 
 form {
@@ -168,19 +172,25 @@ form {
 }
 
 .champ {
-  display: block;
+  display: grid;
+  gap: 7px;
+}
+
+.champ label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--muted);
 }
 
 input {
   width: 100%;
-  height: 48px;
-  padding-inline: 14px;
+  padding: 14px 15px;
   font-family: var(--sans);
-  font-size: 14px;
+  font-size: 15px;
   color: var(--ink);
-  background: var(--surface);
+  background: var(--ground);
   border: 1px solid var(--line);
-  border-radius: var(--r-champ);
+  border-radius: 11px;
 }
 
 input::placeholder {
@@ -191,6 +201,18 @@ input::placeholder {
 input:focus-visible {
   outline: 2px solid var(--dom);
   outline-offset: 2px;
+}
+
+/* Remonte le lien contre le champ et degage les 24 px que le canvas laisse
+ * avant le bouton, sans casser la gouttiere du formulaire. */
+.oubli {
+  margin: -4px 0 10px;
+  font-size: 12.5px;
+}
+
+.oubli a {
+  color: var(--muted);
+  text-decoration: underline;
 }
 
 .erreur {
@@ -207,19 +229,15 @@ input:focus-visible {
   padding: 10px 12px;
   font-size: 13px;
   line-height: 1.5;
-  background: var(--dom-soft, #e6f4f1);
+  background: var(--dom-soft);
   border-radius: var(--r-champ);
-}
-
-.inscrire {
-  margin-top: 12px;
 }
 
 .legal,
 .aide {
-  margin: 14px 0 0;
-  font-size: 11px;
-  line-height: 1.4;
+  margin: 18px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
   text-align: center;
   color: var(--muted);
 }
@@ -233,12 +251,9 @@ code {
   font-size: 0.95em;
 }
 
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+@media (max-width: 560px) {
+.connexion {
+    padding-inline: 20px;
+  }
 }
 </style>

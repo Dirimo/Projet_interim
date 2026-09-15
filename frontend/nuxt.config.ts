@@ -2,7 +2,7 @@ export default defineNuxtConfig({
   compatibilityDate: '2026-09-01',
   devtools: { enabled: true },
   devServer: { port: 3000 },
-  css: ['~/assets/css/main.css'],
+  css: ['~/assets/css/main.css', '~/assets/css/vitrine.css'],
   runtimeConfig: {
     // Prive, donc jamais serialise vers le navigateur : depuis le passage au
     // relais /bff, seul Nitro appelle l'API. Une valeur publique inviterait a
@@ -25,6 +25,16 @@ export default defineNuxtConfig({
       title: 'Relève',
       htmlAttrs: { lang: 'fr' },
       meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }],
+      // Le canvas est dessine en Plus Jakarta Sans : sans ce chargement, le
+      // front retombait sur Segoe UI, aucune police n'ayant jamais ete servie.
+      link: [
+        { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
+        { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
+        {
+          rel: 'stylesheet',
+          href: 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap',
+        },
+      ],
     },
   },
 });

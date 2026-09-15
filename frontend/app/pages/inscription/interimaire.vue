@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FILIERE_LIBELLES, inscriptionInterimaireSchema, type Filiere } from '@releve/shared';
+import { inscriptionInterimaireSchema } from '@releve/shared';
 
 useHead({ title: 'Inscription interimaire — Relève' });
 
@@ -9,7 +9,6 @@ const form = reactive({
   nom: '',
   prenom: '',
   telephone: '',
-  filieres: [] as Filiere[],
   adresse: '',
   codePostal: '',
   ville: '',
@@ -38,7 +37,6 @@ function corps() {
       nom: form.nom,
       prenom: form.prenom,
       telephone: form.telephone,
-      filieres: form.filieres,
       adresse: form.adresse,
       codePostal: form.codePostal,
       ville: form.ville,
@@ -71,7 +69,7 @@ async function soumettre(): Promise<void> {
   envoi.value = true;
 
   try {
-    const reponse = await inscrire('interimaire', corps());
+    const reponse = await inscrire(corps());
 
     enAttente.value = reponse.email;
   } catch (cause) {
@@ -88,68 +86,96 @@ async function soumettre(): Promise<void> {
 
 <template>
   <section class="inscription">
-    <p class="fil"><NuxtLink to="/inscription">Inscription</NuxtLink> / Interimaire</p>
-    <h1>Creer mon profil</h1>
-    <p class="intro">
-      Vous recevrez un lien de confirmation par courriel. L'agence verifie ensuite vos diplomes
-      avant de vous proposer des missions.
-    </p>
+    <p class="accroche">Le soin, sans attendre</p>
+    <h1>Créez votre dossier candidat</h1>
+
+    <!--
+      Le canvas numerote le parcours « Vos informations » puis « Vos documents ».
+      La seconde etape n'est pas reprise telle quelle : l'API n'a ni modele ni
+      route de piece jointe, et cinq boutons de chargement sans destination
+      vaudraient moins que rien. Le jalon affiche donc l'etape qui existe
+      vraiment apres le formulaire — la confirmation de l'adresse.
+    -->
+    <ol class="etapes">
+      <li :class="{ actif: !enAttente }">
+        <span class="puce">1</span>
+        Vos informations
+      </li>
+      <li :class="{ actif: !!enAttente }">
+        <span class="puce">2</span>
+        Confirmation
+      </li>
+    </ol>
 
     <AppAttenteVerification v-if="enAttente" :email="enAttente" />
 
     <form v-else novalidate @submit.prevent="soumettre">
-      <fieldset>
-        <legend>Vous</legend>
+      <fieldset class="carte">
+        <legend>Entrez les informations suivantes</legend>
+        <p class="sous-titre">
+          Ces informations servent à établir vos contrats et vos fiches de paie.
+        </p>
 
-        <div class="paire">
-          <label>
-            <span>Prenom</span>
-            <input id="prenom" v-model="form.prenom" type="text" autocomplete="given-name" />
+        <div class="grille">
+          <label class="champ">
+            <span>Prénom</span>
+            <input
+              id="prenom"
+              v-model="form.prenom"
+              type="text"
+              autocomplete="given-name"
+              placeholder="John"
+            />
             <em v-if="erreurs.prenom">{{ erreurs.prenom }}</em>
           </label>
 
-          <label>
+          <label class="champ">
             <span>Nom</span>
-            <input id="nom" v-model="form.nom" type="text" autocomplete="family-name" />
+            <input
+              id="nom"
+              v-model="form.nom"
+              type="text"
+              autocomplete="family-name"
+              placeholder="Doe"
+            />
             <em v-if="erreurs.nom">{{ erreurs.nom }}</em>
           </label>
-        </div>
 
-        <label>
-          <span>Telephone</span>
-          <input id="telephone" v-model="form.telephone" type="tel" autocomplete="tel" />
-          <em v-if="erreurs.telephone">{{ erreurs.telephone }}</em>
-        </label>
-      </fieldset>
-
-      <fieldset>
-        <legend>Ou vous intervenez</legend>
-
-        <p class="explication">
-          Les deux filieres sont possibles : beaucoup d'intervenants font du domicile et de
-          l'etablissement.
-        </p>
-
-        <div class="cases">
-          <label v-for="(libelle, code) in FILIERE_LIBELLES" :key="code" class="case">
-            <input :id="`filiere-${code}`" v-model="form.filieres" type="checkbox" :value="code" />
-            <span>{{ libelle }}</span>
+          <label class="champ">
+            <span>Numéro de téléphone</span>
+            <input
+              id="telephone"
+              v-model="form.telephone"
+              type="tel"
+              autocomplete="tel"
+              placeholder="06 00 00 00 00"
+            />
+            <em v-if="erreurs.telephone">{{ erreurs.telephone }}</em>
           </label>
         </div>
-        <em v-if="erreurs.filieres">{{ erreurs.filieres }}</em>
       </fieldset>
 
-      <fieldset>
-        <legend>Votre secteur</legend>
+      <fieldset class="carte">
+        <legend>Votre secteur d'intervention</legend>
+        <p class="sous-titre">
+          Il détermine les missions qui vous sont proposées : seules celles à portée de votre
+          adresse vous seront envoyées.
+        </p>
 
-        <label>
-          <span>Adresse</span>
-          <input id="adresse" v-model="form.adresse" type="text" autocomplete="street-address" />
-          <em v-if="erreurs.adresse">{{ erreurs.adresse }}</em>
-        </label>
+        <div class="grille">
+          <label class="champ large">
+            <span>Adresse</span>
+            <input
+              id="adresse"
+              v-model="form.adresse"
+              type="text"
+              autocomplete="street-address"
+              placeholder="12 rue des Lilas"
+            />
+            <em v-if="erreurs.adresse">{{ erreurs.adresse }}</em>
+          </label>
 
-        <div class="paire">
-          <label>
+          <label class="champ">
             <span>Code postal</span>
             <input
               id="code-postal"
@@ -157,109 +183,181 @@ async function soumettre(): Promise<void> {
               type="text"
               inputmode="numeric"
               autocomplete="postal-code"
+              placeholder="69003"
             />
             <em v-if="erreurs.codePostal">{{ erreurs.codePostal }}</em>
           </label>
 
-          <label>
-            <span>Ville</span>
-            <input id="ville" v-model="form.ville" type="text" autocomplete="address-level2" />
+          <label class="champ">
+            <span>Ville d'intervention</span>
+            <input
+              id="ville"
+              v-model="form.ville"
+              type="text"
+              autocomplete="address-level2"
+              placeholder="Lyon"
+            />
             <em v-if="erreurs.ville">{{ erreurs.ville }}</em>
           </label>
-        </div>
 
-        <label>
-          <span>Rayon de deplacement : {{ form.rayonKm }} km</span>
-          <input id="rayon" v-model.number="form.rayonKm" type="range" min="1" max="150" />
-          <em v-if="erreurs.rayonKm">{{ erreurs.rayonKm }}</em>
-        </label>
+          <label class="champ large">
+            <span>Rayon de déplacement : {{ form.rayonKm }} km</span>
+            <input id="rayon" v-model.number="form.rayonKm" type="range" min="1" max="150" />
+            <em v-if="erreurs.rayonKm">{{ erreurs.rayonKm }}</em>
+          </label>
 
-        <div class="cases">
-          <label class="case">
-            <input id="permis" v-model="form.permisB" type="checkbox" />
-            <span>J'ai le permis B</span>
-          </label>
-          <label class="case">
-            <input id="vehicule" v-model="form.vehicule" type="checkbox" />
-            <span>J'ai un vehicule</span>
-          </label>
+          <div class="cases large">
+            <label class="case">
+              <input id="permis" v-model="form.permisB" type="checkbox" />
+              <span>J'ai le permis B</span>
+            </label>
+            <label class="case">
+              <input id="vehicule" v-model="form.vehicule" type="checkbox" />
+              <span>J'ai un véhicule</span>
+            </label>
+          </div>
         </div>
       </fieldset>
 
-      <fieldset>
-        <legend>Le compte</legend>
+      <fieldset class="carte">
+        <legend>Votre compte</legend>
+        <p class="sous-titre">
+          Un lien de confirmation part vers cette adresse dès la création du dossier.
+        </p>
 
-        <label>
-          <span>Adresse e-mail</span>
-          <input id="email" v-model="form.email" type="email" autocomplete="email" />
-          <em v-if="erreurs.email">{{ erreurs.email }}</em>
-        </label>
+        <div class="grille">
+          <label class="champ large">
+            <span>Adresse mail</span>
+            <input
+              id="email"
+              v-model="form.email"
+              type="email"
+              autocomplete="email"
+              placeholder="johndoe@gmail.com"
+            />
+            <em v-if="erreurs.email">{{ erreurs.email }}</em>
+          </label>
 
-        <label>
-          <span>Mot de passe</span>
-          <input
-            id="mot-de-passe"
-            v-model="form.motDePasse"
-            type="password"
-            autocomplete="new-password"
-          />
-          <em v-if="erreurs.motDePasse">{{ erreurs.motDePasse }}</em>
-        </label>
+          <label class="champ">
+            <span>Mot de passe</span>
+            <input
+              id="mot-de-passe"
+              v-model="form.motDePasse"
+              type="password"
+              autocomplete="new-password"
+              placeholder="••••••••••"
+            />
+            <em v-if="erreurs.motDePasse">{{ erreurs.motDePasse }}</em>
+          </label>
 
-        <label>
-          <span>Confirmer le mot de passe</span>
-          <input
-            id="confirmation"
-            v-model="form.confirmation"
-            type="password"
-            autocomplete="new-password"
-          />
-          <em v-if="erreurs.confirmation">{{ erreurs.confirmation }}</em>
-        </label>
+          <label class="champ">
+            <span>Confirmer le mot de passe</span>
+            <input
+              id="confirmation"
+              v-model="form.confirmation"
+              type="password"
+              autocomplete="new-password"
+              placeholder="••••••••••"
+            />
+            <em v-if="erreurs.confirmation">{{ erreurs.confirmation }}</em>
+          </label>
+        </div>
       </fieldset>
 
       <p v-if="erreurGenerale" class="erreur">{{ erreurGenerale }}</p>
 
-      <button type="submit" :disabled="envoi">
-        {{ envoi ? 'Creation...' : 'Creer mon profil' }}
-      </button>
+      <div class="pied-formulaire">
+        <button type="submit" class="principal" :disabled="envoi">
+          {{ envoi ? 'Création...' : 'Créer mon dossier candidat' }}
+        </button>
+
+        <p class="deja">
+          Déjà un compte ?
+          <NuxtLink to="/connexion">Connectez-vous</NuxtLink>
+        </p>
+      </div>
     </form>
 
     <p v-if="!enAttente" class="note">
-      Aucune donnee de sante ne vous est demandee. L'agence enregistre seulement si vous etes
-      deployable, jamais pourquoi.
+      Aucune donnée de santé ne vous est demandée. L'agence enregistre seulement si vous êtes
+      déployable, jamais pourquoi.
     </p>
   </section>
 </template>
 
 <style scoped>
 .inscription {
-  max-width: 560px;
+  padding-inline: 28px;
+  max-width: 720px;
   margin: 0 auto;
-  padding-block: 44px 0;
+  padding-block: 56px 100px;
 }
 
-.fil {
+.accroche {
   margin: 0 0 14px;
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--eta);
 }
 
 h1 {
-  margin: 0 0 6px;
-  font-size: 1.5rem;
+  /* Le canvas pose 40 px ; la borne basse evite qu'un ecran de telephone ne
+   * coupe le titre en quatre lignes. */
+  margin: 0 0 30px;
+  font-size: clamp(30px, 6vw, 40px);
   font-weight: 700;
-  letter-spacing: -0.01em;
+  line-height: 1.1;
+  letter-spacing: -0.035em;
 }
 
-.intro {
-  margin: 0 0 22px;
-  font-size: 0.92rem;
+.etapes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 0;
+  margin: 0 0 32px;
+  list-style: none;
+}
+
+.etapes li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 18px;
+  font-size: 14.5px;
+  font-weight: 600;
+  white-space: nowrap;
   color: var(--muted);
-  line-height: 1.5;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.etapes .actif {
+  color: var(--dom-fonce);
+  background: var(--surface-2);
+  border-color: var(--dom);
+}
+
+.puce {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--dom);
+  background: var(--surface-2);
+  border-radius: 50%;
+}
+
+.etapes .actif .puce {
+  color: var(--surface);
+  background: var(--dom);
 }
 
 form {
@@ -267,52 +365,72 @@ form {
   gap: 18px;
 }
 
-fieldset {
-  display: grid;
-  gap: 14px;
+.carte {
+  padding: 32px;
   margin: 0;
-  padding: 18px 20px 20px;
   background: var(--surface);
   border: 1px solid var(--line);
+  border-radius: 22px;
 }
 
 legend {
-  padding: 0 8px;
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--eta);
+  padding: 0;
+  font-size: 20px;
+  font-weight: 600;
 }
 
-label {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.sous-titre {
+  margin: 6px 0 26px;
+  font-size: 14.5px;
+  line-height: 1.6;
   color: var(--muted);
 }
 
-.paire {
+.grille {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  gap: 18px;
 }
 
-@media (max-width: 460px) {
-  .paire {
-    grid-template-columns: 1fr;
-  }
+.large {
+  grid-column: 1 / -1;
 }
 
-.explication {
-  margin: 0;
-  font-size: 0.84rem;
+.champ {
+  display: grid;
+  gap: 7px;
+  font-size: 13.5px;
+  font-weight: 600;
   color: var(--muted);
-  line-height: 1.45;
+}
+
+input {
+  width: 100%;
+  padding: 14px 15px;
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--ink);
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+}
+
+input::placeholder {
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+input:focus-visible {
+  outline: 2px solid var(--dom);
+  outline-offset: 2px;
+}
+
+input[type='range'] {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  accent-color: var(--dom);
 }
 
 .cases {
@@ -322,81 +440,103 @@ label {
 }
 
 .case {
-  flex-direction: row;
-  align-items: center;
+  display: flex;
   gap: 8px;
-  font-family: var(--sans);
-  font-size: 0.9rem;
-  text-transform: none;
-  letter-spacing: normal;
+  align-items: center;
+  font-size: 14.5px;
+  font-weight: 500;
   color: var(--ink);
 }
 
 .case input {
   width: auto;
   padding: 0;
-  accent-color: var(--eta);
-}
-
-input,
-select {
-  font-family: var(--sans);
-  font-size: 0.92rem;
-  padding: 9px 10px;
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  background: var(--ground);
-  color: var(--ink);
-  text-transform: none;
-  letter-spacing: normal;
-}
-
-input[type='range'] {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  accent-color: var(--eta);
+  accent-color: var(--dom);
 }
 
 em {
-  font-family: var(--sans);
+  font-size: 13px;
   font-style: normal;
-  font-size: 0.82rem;
-  letter-spacing: normal;
-  text-transform: none;
+  font-weight: 500;
   color: var(--eta);
 }
 
-button {
+.erreur {
+  padding: 13px 15px;
+  margin: 0;
+  font-size: 14px;
+  color: var(--eta);
+  background: var(--eta-soft);
+  border: 1px solid var(--eta-line);
+  border-radius: 12px;
+}
+
+.pied-formulaire {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.principal {
+  padding: 15px 28px;
   font-family: var(--sans);
-  font-size: 0.9rem;
-  font-weight: 700;
-  padding: 11px 18px;
-  border: 0;
-  border-radius: 3px;
-  background: var(--eta);
+  font-size: 15.5px;
+  font-weight: 600;
   color: var(--surface);
+  background: var(--dom);
+  border: 0;
+  border-radius: 12px;
   cursor: pointer;
 }
 
-button:disabled {
+.principal:hover:not(:disabled) {
+  background: var(--dom-fonce);
+}
+
+.principal:disabled {
   opacity: 0.6;
   cursor: progress;
 }
 
-.erreur {
+.principal:focus-visible {
+  outline: 2px solid var(--dom);
+  outline-offset: 3px;
+}
+
+.deja {
   margin: 0;
-  font-size: 0.88rem;
-  color: var(--eta);
-  padding: 9px 11px;
-  background: var(--eta-soft);
-  border-left: 3px solid var(--eta);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.deja a {
+  font-weight: 600;
+  color: var(--dom);
+  text-decoration: underline;
 }
 
 .note {
-  margin-top: 20px;
-  font-size: 0.82rem;
+  margin: 24px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
   color: var(--muted);
-  line-height: 1.5;
+}
+
+@media (max-width: 560px) {
+  .carte {
+    padding: 22px;
+  }
+
+  .grille {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+.inscription {
+    padding-inline: 20px;
+  }
 }
 </style>

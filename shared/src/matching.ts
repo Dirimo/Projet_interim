@@ -9,13 +9,26 @@ import type { CandidatPropose } from './proposition';
  * remonte. Un nombre seul ne permet ni l'un ni l'autre, et il devient
  * indéfendable dès qu'on le conteste.
  */
-export const CLES_COMPOSANTES = ['competences', 'zone', 'disponibilite'] as const;
+export const CLES_COMPOSANTES = ['experience', 'zone', 'disponibilite'] as const;
 
 export type CleComposante = (typeof CLES_COMPOSANTES)[number];
 
-/** Poids de chaque composante. Leur somme fait 100 : le total est un pourcentage. */
+/**
+ * Poids de chaque composante. Leur somme fait 100 : le total est un pourcentage.
+ *
+ * `experience` a remplacé `competences`. L'ancienne composante mesurait la
+ * détention d'un diplôme et son ancienneté — or la porte d'éligibilité exige
+ * déjà le diplôme, donc tout candidat classé le possède : ces points-là étaient
+ * une constante ajoutée à tout le monde, qui ne départageait personne. Ce qui
+ * distingue deux titulaires du même diplôme, c'est le temps passé sur le
+ * terrain, et c'est ce que mesure la nouvelle composante.
+ *
+ * Les poids sont ici, en clair, et nulle part ailleurs. Ils devront passer en
+ * base le jour où deux agences voudront des barèmes différents ; en attendant,
+ * ce fichier est l'endroit où l'on en discute.
+ */
 export const POIDS_COMPOSANTES: Record<CleComposante, number> = {
-  competences: 40,
+  experience: 40,
   zone: 35,
   disponibilite: 25,
 };
@@ -45,14 +58,7 @@ export interface ScoreDetail {
  * plus courte sans explication.
  */
 export interface MotifExclusion {
-  cle:
-    | 'statut'
-    | 'filiere'
-    | 'diplome'
-    | 'indisponible'
-    | 'deja-engage'
-    | 'hors-rayon'
-    | 'sans-adresse';
+  cle: 'statut' | 'diplome' | 'indisponible' | 'deja-engage' | 'hors-rayon' | 'sans-adresse';
   libelle: string;
 }
 

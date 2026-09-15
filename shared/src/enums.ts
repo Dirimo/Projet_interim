@@ -6,14 +6,6 @@ import { z } from 'zod';
  * `contracts` ne depend pas de Prisma pour rester importable par le front.
  */
 
-export const filiereSchema = z.enum(['DOMICILE', 'ETABLISSEMENT']);
-export type Filiere = z.infer<typeof filiereSchema>;
-
-export const FILIERE_LIBELLES: Record<Filiere, string> = {
-  DOMICILE: 'Domicile',
-  ETABLISSEMENT: 'Etablissement',
-};
-
 export const statutCandidatSchema = z.enum([
   'BROUILLON',
   'EN_VERIFICATION',

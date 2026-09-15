@@ -5,12 +5,7 @@ import type {
   QualificationResume,
   StatutCandidat,
 } from '@releve/shared';
-import {
-  chevauchements,
-  FILIERE_LIBELLES,
-  JOURS_SEMAINE,
-  STATUT_CANDIDAT_LIBELLES,
-} from '@releve/shared';
+import { chevauchements, JOURS_SEMAINE, STATUT_CANDIDAT_LIBELLES } from '@releve/shared';
 
 const route = useRoute();
 const { requete } = useApi();
@@ -228,14 +223,6 @@ function retirerIndisponibilite(indisponibiliteId: string): Promise<void> {
     <template v-else-if="candidat">
       <div class="titre">
         <h1>{{ candidat.prenom }} {{ candidat.nom }}</h1>
-        <span
-          v-for="f in candidat.filieres"
-          :key="f"
-          class="pastille"
-          :class="f === 'DOMICILE' ? 'dom' : 'eta'"
-        >
-          {{ FILIERE_LIBELLES[f] }}
-        </span>
       </div>
 
       <p class="coordonnees">

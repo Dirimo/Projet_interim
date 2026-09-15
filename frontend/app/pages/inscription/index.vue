@@ -2,133 +2,111 @@
 useHead({ title: 'Inscription - Relève' });
 
 /**
- * Les deux cartes du Figma mappent les deux parcours deja routes : le profil
- * soignant mene au formulaire interimaire, l'etablissement au formulaire
- * entreprise. La maquette ne dessine aucune carte selectionnee au chargement,
- * d'ou le choix nul et le bouton inactif tant que rien n'est coche.
+ * Un seul parcours public.
+ *
+ * Le canvas enchaine directement sur le formulaire candidat : il ne dessine pas
+ * cet ecran de choix. Il est garde parce qu'il porte ce que le canvas ne dit
+ * pas — qu'un etablissement ne s'inscrit pas seul. Seule la mise en forme suit
+ * desormais le canvas.
+ *
+ * L'ancienne maquette dessinait deux cartes, dont une pour l'etablissement.
+ * Elle a ete retiree : un ESMS est cree par l'agence, apres lecture de sa
+ * declaration SAP, de son agrement ou de son arrete d'autorisation. Ces pieces
+ * engagent juridiquement, et une structure qui se declarerait autorisee sans
+ * que personne n'ouvre l'arrete ne serait pas verifiee du tout.
+ *
+ * La case a cocher disparait avec elle : choisir entre une seule chose n'est
+ * pas un choix, et un bouton « Continuer » desactive tant qu'on n'a pas coche
+ * l'unique option ne serait qu'un obstacle. La carte mene directement au
+ * formulaire.
  */
-type Parcours = 'interimaire' | 'entreprise';
-
-const choix = ref<Parcours | null>(null);
-
-async function continuer(): Promise<void> {
-  if (!choix.value) return;
-  await navigateTo(`/inscription/${choix.value}`);
-}
 </script>
 
 <template>
   <section class="inscription">
     <p class="accroche">Le soin, sans attendre</p>
-    <h1>Quel type de profil etes-vous ?</h1>
+    <h1>Quel type de profil êtes-vous ?</h1>
     <p class="intro">
-      Une mise en relation rapide, humaine et securisee pour les remplacements urgents.
+      Une mise en relation rapide, humaine et sécurisée pour les remplacements urgents.
     </p>
 
-    <fieldset class="profils">
-      <legend class="sr-only">Type de profil</legend>
+    <NuxtLink class="profil" to="/inscription/interimaire">
+      <span class="tuile"><AppIcon nom="ambulance" :taille="24" /></span>
+      <span class="copie">
+        <span class="titre">Candidat / aide à domicile</span>
+        <span class="detail">Je trouve des missions adaptées à mes disponibilités.</span>
+      </span>
+      <AppIcon class="fleche" nom="arrow-right" :taille="20" />
+    </NuxtLink>
 
-      <label class="profil" :class="{ actif: choix === 'interimaire' }">
-        <input v-model="choix" class="sr-only" type="radio" name="parcours" value="interimaire" />
-        <span class="tuile"><AppIcon nom="ambulance" :taille="24" /></span>
-        <span class="copie">
-          <span class="titre">Je suis aide-soignant&middot;e</span>
-          <span class="detail">Je trouve des missions adaptees a mes disponibilites.</span>
-        </span>
-        <AppIcon
-          class="puce"
-          :nom="choix === 'interimaire' ? 'check-circle' : 'circle'"
-          :taille="20"
-        />
-      </label>
+    <p class="structure">
+      Vous représentez un service d'aide à domicile ? Votre structure est enregistrée par nos
+      équipes, après vérification de votre déclaration SAP ou de votre autorisation.
+      <a href="mailto:contact@releve.example">Écrivez-nous</a>.
+    </p>
 
-      <label class="profil" :class="{ actif: choix === 'entreprise' }">
-        <input v-model="choix" class="sr-only" type="radio" name="parcours" value="entreprise" />
-        <span class="tuile"><AppIcon nom="hospital" :taille="24" /></span>
-        <span class="copie">
-          <span class="titre">Je represente un etablissement</span>
-          <span class="detail">EHPAD ou organisme : je publie un besoin de remplacement.</span>
-        </span>
-        <AppIcon
-          class="puce"
-          :nom="choix === 'entreprise' ? 'check-circle' : 'circle'"
-          :taille="20"
-        />
-      </label>
-    </fieldset>
+    <p class="deja">
+      Déjà inscrit ?
+      <NuxtLink to="/connexion">Connectez-vous</NuxtLink>
+    </p>
 
-    <div class="actions">
-      <AppBouton icone="arrow-right" :desactive="!choix" @click="continuer()">Continuer</AppBouton>
-
-      <p class="legal">
-        En continuant, vous acceptez nos <a href="#">conditions d'utilisation</a> et notre
-        <a href="#">politique de confidentialite</a>.
-      </p>
-
-      <p class="retour">Deja inscrit ? <NuxtLink to="/connexion">Se connecter</NuxtLink></p>
-    </div>
+    <p class="legal">
+      En continuant, vous acceptez nos <a href="#">conditions d'utilisation</a> et notre
+      <a href="#">politique de confidentialité</a>.
+    </p>
   </section>
 </template>
 
 <style scoped>
 .inscription {
-  max-width: 760px;
+  padding-inline: 28px;
+  max-width: 720px;
   margin: 0 auto;
-  padding-block: 48px 0;
+  padding-block: 56px 100px;
 }
 
 .accroche {
-  margin: 0 0 10px;
-  font-size: 12px;
-  font-weight: 700;
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--eta);
 }
 
 h1 {
-  margin: 0 0 12px;
-  font-size: 30px;
-  font-weight: 400;
-  line-height: 1.12;
+  margin: 0 0 10px;
+  font-size: clamp(30px, 6vw, 40px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.035em;
 }
 
 .intro {
-  margin: 0 0 28px;
   max-width: 46ch;
-  font-size: 14px;
-  line-height: 1.5;
+  margin: 0 0 30px;
+  font-size: 15.5px;
+  line-height: 1.6;
   color: var(--muted);
-}
-
-/* Les deux cartes sont empilees dans le Figma ; l'espace disponible sur le web
- * permet de les mettre cote a cote des que la largeur le supporte. */
-.profils {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 12px;
-  margin: 0;
-  padding: 0;
-  border: 0;
 }
 
 .profil {
   display: flex;
-  gap: 14px;
+  gap: 16px;
   align-items: center;
-  padding: 18px;
+  padding: 24px;
+  color: inherit;
+  text-decoration: none;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--r-carte);
-  cursor: pointer;
+  border-radius: 18px;
 }
 
-/* La maquette ne fournit que l'etat non selectionne : l'etat actif reprend le
- * vert de marque, deja porte par la puce cochee. */
-.profil.actif {
+.profil:hover {
   border-color: var(--dom);
 }
 
-.profil:focus-within {
+.profil:focus-visible {
   outline: 2px solid var(--dom);
   outline-offset: 2px;
 }
@@ -141,7 +119,7 @@ h1 {
   width: 48px;
   height: 48px;
   color: var(--dom);
-  background: var(--dom-soft);
+  background: var(--surface-2);
   border-radius: var(--r-tuile);
 }
 
@@ -153,49 +131,63 @@ h1 {
 }
 
 .titre {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--ink);
+  font-size: 17px;
+  font-weight: 600;
 }
 
 .detail {
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: 14px;
+  line-height: 1.6;
   color: var(--muted);
 }
 
-.puce {
-  color: var(--line);
+.fleche {
+  color: var(--muted);
 }
 
-.profil.actif .puce {
+.profil:hover .fleche {
   color: var(--dom);
 }
 
-.actions {
-  max-width: 342px;
-  margin-top: 28px;
+.structure {
+  max-width: 62ch;
+  margin: 26px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
 }
 
-.legal,
-.retour {
-  margin: 12px 0 0;
-  font-size: 11px;
-  line-height: 1.4;
-  text-align: center;
+.structure a {
+  color: var(--dom);
+}
+
+.deja {
+  margin: 16px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.deja a {
+  font-weight: 600;
+  color: var(--dom);
+  text-decoration: underline;
+}
+
+.legal {
+  margin: 18px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
   color: var(--muted);
 }
 
 .legal a {
   color: inherit;
+  text-decoration: underline;
 }
 
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+@media (max-width: 560px) {
+.inscription {
+    padding-inline: 20px;
+  }
 }
 </style>
