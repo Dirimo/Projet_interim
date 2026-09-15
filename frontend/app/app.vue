@@ -1,8 +1,9 @@
 <template>
   <!--
-    Le choix du layout se fait page par page : le back-office garde la coque
-    agence (`default`), les ecrans d'onboarding issus du Figma sont plein cadre
-    et n'affichent ni entete ni menu (`onboarding`).
+    Un seul layout, `default`, qui choisit lui-meme entre deux coques selon la
+    session : publique — en-tete collant, navigation vitrine, pied de page — ou
+    applicative, a barre laterale. Le layout `onboarding` et son cadre mobile
+    ont disparu avec les ecrans qu'ils encadraient.
   -->
   <NuxtLayout>
     <NuxtPage />

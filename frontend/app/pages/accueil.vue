@@ -33,7 +33,7 @@ useHead({
         </p>
 
         <div class="actions">
-          <NuxtLink to="/inscription" class="vitrine-bouton">Créer mon dossier candidat</NuxtLink>
+          <NuxtLink to="/inscription/interimaire" class="vitrine-bouton">Créer mon dossier candidat</NuxtLink>
           <NuxtLink to="/fonctionnement" class="vitrine-bouton secondaire">
             Comment ça marche
           </NuxtLink>
@@ -131,7 +131,7 @@ useHead({
           </p>
         </div>
 
-        <NuxtLink to="/inscription" class="bouton-clair">Créer mon compte</NuxtLink>
+        <NuxtLink to="/inscription/interimaire" class="bouton-clair">Créer mon compte</NuxtLink>
       </div>
     </section>
   </div>

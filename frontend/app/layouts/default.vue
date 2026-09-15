@@ -78,7 +78,7 @@ const colonnesPied = [
     titre: 'Candidats',
     liens: [
       { to: '/fonctionnement', label: 'Comment ça marche' },
-      { to: '/inscription', label: 'Créer un compte' },
+      { to: '/inscription/interimaire', label: 'Créer un compte' },
       { to: '/connexion', label: 'Se connecter' },
     ],
   },
@@ -124,7 +124,7 @@ async function sortir(): Promise<void> {
 
         <div class="acces">
           <NuxtLink to="/connexion" class="lien-bouton secondaire">Se connecter</NuxtLink>
-          <NuxtLink to="/inscription" class="lien-bouton primaire">S'inscrire</NuxtLink>
+          <NuxtLink to="/inscription/interimaire" class="lien-bouton primaire">S'inscrire</NuxtLink>
         </div>
       </div>
     </header>

@@ -282,6 +282,14 @@ async function soumettre(): Promise<void> {
       Aucune donnée de santé ne vous est demandée. L'agence enregistre seulement si vous êtes
       déployable, jamais pourquoi.
     </p>
+
+    <!-- Reprise de l'ecran de choix supprime : c'est la seule information qu'il
+         portait et qui n'existait nulle part ailleurs. -->
+    <p v-if="!enAttente" class="note">
+      Vous représentez un service d'aide à domicile ? Votre structure est enregistrée par nos
+      équipes, après vérification de votre déclaration SAP ou de votre autorisation.
+      <a href="mailto:contact@releve.example">Écrivez-nous</a>.
+    </p>
   </section>
 </template>
 
@@ -522,6 +530,14 @@ em {
   font-size: 13px;
   line-height: 1.6;
   color: var(--muted);
+}
+
+.note + .note {
+  margin-top: 12px;
+}
+
+.note a {
+  color: var(--dom);
 }
 
 @media (max-width: 560px) {

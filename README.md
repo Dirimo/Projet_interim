@@ -455,7 +455,7 @@ frontend/                         Front Nuxt
       contact.vue                 coordonnées et formulaire, qui compose un courriel
       mentions-legales.vue        rubriques légales, champs « À compléter », en noindex
       connexion.vue
-      inscription/                une seule carte : le parcours intervenant
+      inscription/interimaire.vue le seul parcours public ; /inscription y redirige (301)
       verification.vue            cible du lien reçu : confirme, puis redirige selon le rôle
       mot-de-passe-oublie.vue     demande d'un lien, réponse identique dans tous les cas
       reinitialisation.vue        choix du nouveau mot de passe depuis le lien
@@ -874,9 +874,9 @@ travail. Sans conséquence technique, mais visible en soutenance.
 **La couverture n'est pas mesurée.** `vitest run --coverage` n'est câblé nulle part, alors que le
 rapport de couverture est un livrable attendu.
 
-**Un consentement adossé à rien.** `/connexion` et `/inscription` affichent « En continuant, vous
-acceptez nos conditions d'utilisation et notre politique de confidentialité », avec quatre liens
-`href="#"`. Ces deux textes n'existent pas. C'est le seul endroit du site qui affirme aujourd'hui
+**Un consentement adossé à rien.** `/connexion` affiche « En continuant, vous acceptez nos
+conditions d'utilisation et notre politique de confidentialité », avec deux liens `href="#"`. Ces
+deux textes n'existent pas. C'est le seul endroit du site qui affirme aujourd'hui
 quelque chose de faux, et il se trouve à l'instant où le consentement est censé être recueilli :
 soit les documents sont écrits, soit la phrase est retirée.
 

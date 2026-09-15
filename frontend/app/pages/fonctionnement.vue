@@ -33,7 +33,7 @@ useHead({
       </li>
     </ol>
 
-    <NuxtLink to="/inscription" class="vitrine-bouton depart">Commencer mon inscription</NuxtLink>
+    <NuxtLink to="/inscription/interimaire" class="vitrine-bouton depart">Commencer mon inscription</NuxtLink>
   </main>
 </template>
 
