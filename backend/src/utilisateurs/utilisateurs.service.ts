@@ -18,6 +18,7 @@ import {
 import { hacherMotDePasse } from '../auth/mots-de-passe';
 import { SessionsService } from '../auth/sessions.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsCompteService } from '../mail/notifications-compte.service';
 
 const avecRattachements = {
   include: {
@@ -50,6 +51,7 @@ export class UtilisateursService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sessions: SessionsService,
+    private readonly notifications: NotificationsCompteService,
   ) {}
 
   /**
@@ -224,6 +226,12 @@ export class UtilisateursService {
     // Une reinitialisation fait suite a un oubli ou a un incident : dans les
     // deux cas les sessions en cours n'ont plus lieu d'etre.
     await this.sessions.revoquerTout(id);
+
+    // L'interesse est prevenu, avec la mention que l'operation vient de
+    // l'agence. Le nouveau mot de passe n'y figure pas : il est communique de
+    // vive voix, un courriel traverse des serveurs qu'on ne maitrise pas et
+    // reste dans une boite pour toujours.
+    await this.notifications.motDePasseChange(id, 'agence');
 
     return versResume(utilisateur);
   }

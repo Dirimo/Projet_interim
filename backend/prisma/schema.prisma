@@ -1,13 +1,13 @@
 // Schema Relève - voir docs/analyse-de-marche.html
 //
 // Trois invariants portes par ce schema :
-//  1. un seul CANDIDAT, avec un tableau `filieres` : beaucoup d'interimaires du
-//     secteur font du domicile ET de l'etablissement, dupliquer la fiche ferait
-//     diverger les disponibilites ;
-//  2. le CLIENT contractuel n'est pas le LIEU d'intervention : un SAAD signe la
+//  1. le CLIENT contractuel n'est pas le LIEU d'intervention : un SAAD signe la
 //     mission, l'intervention a lieu chez le beneficiaire ;
-//  3. la convention collective est portee par le CLIENT (principe d'egalite de
-//     traitement avec les salaries de l'entreprise utilisatrice), pas par le candidat.
+//  2. la convention collective est portee par le CLIENT (principe d'egalite de
+//     traitement avec les salaries de l'entreprise utilisatrice), pas par le candidat ;
+//  3. le statut reglementaire du CLIENT est saisi sur piece par l'agence : il
+//     decide de ce que la structure a le droit de faire, et rien dans le SIRET
+//     ne le dit.
 
 generator client {
   provider        = "prisma-client-js"
@@ -24,11 +24,6 @@ datasource db {
 }
 
 // ---------------------------------------------------------------- enums
-
-enum Filiere {
-  DOMICILE
-  ETABLISSEMENT
-}
 
 enum RoleUtilisateur {
   ADMIN_AGENCE
@@ -48,6 +43,14 @@ enum StatutCandidat {
 // Un seul type de client : l'agence ne place que dans des services d'aide et
 // d'accompagnement a domicile. L'enum survit a la reduction parce qu'il porte
 // une information juridique : un SAAD releve de l'article L. 312-1 du CASF.
+/// Voir `shared/src/habilitation.ts` pour ce que chaque regime autorise.
+enum StatutReglementaire {
+  DECLARE_SAP
+  AGREE_SAP
+  AUTORISE_SAD_ESMS
+  PRESTATAIRE_CLASSIQUE
+}
+
 enum TypeClient {
   SAAD
 }
@@ -55,6 +58,20 @@ enum TypeClient {
 enum TypeLieu {
   DOMICILE_BENEFICIAIRE
   ETABLISSEMENT
+}
+
+/// Finesse du point calcule a partir d'une adresse postale.
+///
+/// Une adresse n'est pas situee ou non : elle l'est a une finesse pres. La Base
+/// Adresse Nationale place souvent un numero de rue au metre, mais elle retombe
+/// parfois sur le centre de la commune. Les deux rendent un couple
+/// latitude / longitude d'apparence identique, et les confondre revient a
+/// annoncer « a 3 km » pour quelqu'un qu'on n'a situe qu'a la ville pres.
+enum PrecisionGeocodage {
+  NUMERO
+  RUE
+  LIEU_DIT
+  COMMUNE
 }
 
 enum StatutMission {
@@ -141,8 +158,8 @@ model Utilisateur {
   clientId   String?   @db.Uuid
   client     Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
 
-  jetons        JetonRafraichissement[]
-  verifications JetonVerificationEmail[]
+  jetons JetonRafraichissement[]
+  liens  JetonUsageUnique[]
 
   @@index([agenceId, role])
   @@map("utilisateur")
@@ -177,29 +194,44 @@ model JetonRafraichissement {
   @@map("jeton_rafraichissement")
 }
 
+/// Ce a quoi un lien donne droit. Le meme jeton ne doit jamais servir aux deux :
+/// un lien de confirmation intercepte ouvrirait sinon une reinitialisation.
+enum UsageJeton {
+  VERIFICATION_EMAIL
+  REINITIALISATION_MOT_DE_PASSE
+}
+
 /**
- * Lien de verification d'adresse, a usage unique.
+ * Lien envoye par courriel, a usage unique.
  *
- * Meme traitement que le jeton de rafraichissement, et pour la meme raison : on
- * stocke l'empreinte SHA-256, jamais la valeur. Une fuite de la table ne donne
- * alors aucun lien utilisable, alors que ce lien ouvre une session.
+ * Une seule table pour les deux parcours — confirmer une adresse, reprendre la
+ * main sur un compte — parce que leurs proprietes de securite sont exactement
+ * les memes : empreinte SHA-256 et jamais la valeur, peremption, consommation
+ * unique, invalidation des liens precedents. Les ecrire deux fois les ferait
+ * diverger, et c'est toujours la copie oubliee qui reste exploitable.
+ *
+ * Meme traitement que le jeton de rafraichissement, et pour la meme raison :
+ * une fuite de la table ne donne aucun lien utilisable, alors que ces liens
+ * ouvrent une session ou changent un mot de passe.
  */
-model JetonVerificationEmail {
+model JetonUsageUnique {
   id            String      @id @default(uuid()) @db.Uuid
   utilisateurId String      @db.Uuid
   utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
 
-  empreinte String    @unique
-  expireLe  DateTime
+  usage UsageJeton
+
+  empreinte  String    @unique
+  expireLe   DateTime
   consommeLe DateTime?
-  createdAt DateTime  @default(now())
+  createdAt  DateTime  @default(now())
 
   /// Adresse visee au moment de l'emission. Un lien emis pour une adresse ne
-  /// doit pas confirmer celle qui l'a remplacee entre-temps.
+  /// doit rien accorder sur celle qui l'a remplacee entre-temps.
   email String
 
-  @@index([utilisateurId, consommeLe])
-  @@map("jeton_verification_email")
+  @@index([utilisateurId, usage, consommeLe])
+  @@map("jeton_usage_unique")
 }
 
 // ---------------------------------------------------------------- offre : candidats
@@ -214,16 +246,21 @@ model Candidat {
   telephone String
   statut    StatutCandidat @default(BROUILLON)
 
-  // Une ou les deux : c'est le discriminant qui pilote tout le matching.
-  filieres Filiere[]
-
   adresse    String
   codePostal String
   ville      String
+  // Calculees par `GeocodageService` a partir de l'adresse, jamais saisies.
+  // Nulles tant que l'adresse n'a pas pu etre situee : le matching ecarte alors
+  // la fiche en le disant, plutot que de mesurer une distance inventee.
   latitude   Float?
   longitude  Float?
-  // Colonne PostGIS alimentee par le module de matching (hors client Prisma).
+  // Colonne PostGIS, ecrite en SQL brut : le client Prisma la declare
+  // `Unsupported` et refuse de l'ecrire. Elle bouge toujours avec les deux
+  // colonnes ci-dessus, dans la meme instruction.
   geom       Unsupported("geography(Point, 4326)")?
+  /// Date du dernier geocodage reussi. Nulle quand la fiche n'est pas situee.
+  geocodeLe        DateTime?
+  geocodePrecision PrecisionGeocodage?
 
   rayonKm  Int     @default(20)
   permisB  Boolean @default(false)
@@ -237,6 +274,7 @@ model Candidat {
 
   utilisateur      Utilisateur?
   qualifications   QualificationCandidat[]
+  experiences      ExperienceProfessionnelle[]
   disponibilites   Disponibilite[]
   indisponibilites Indisponibilite[]
   propositions     Proposition[]
@@ -253,15 +291,15 @@ model Qualification {
   id       String    @id @default(uuid()) @db.Uuid
   code     String    @unique
   libelle  String
-  filieres Filiere[]
 
   // Code ROME du metier correspondant. C'est le pont vers les offres collectees
   // sur France Travail : il permet de proposer a l'etablissement le taux median
   // du marche au moment ou il fixe sa remuneration.
   romeCode String?
 
-  candidats QualificationCandidat[]
-  missions  Mission[]
+  candidats    QualificationCandidat[]
+  experiences  ExperienceProfessionnelle[]
+  missions     Mission[]
 
   @@map("qualification")
 }
@@ -281,6 +319,63 @@ model QualificationCandidat {
 
   @@unique([candidatId, qualificationId])
   @@map("qualification_candidat")
+}
+
+/**
+ * Un poste occupe, declare par l'intervenant.
+ *
+ * Le bareme mesurait jusqu'ici l'« experience » par l'anciennete du diplome.
+ * C'est un mauvais substitut : un DEAS obtenu en 2014 et jamais exerce comptait
+ * autant que dix ans de terrain, et une personne qui reprend apres quinze ans
+ * d'interruption partait devant celle qui n'a jamais quitte le metier. Ce
+ * modele porte ce que le diplome ne dit pas.
+ *
+ * Meme invariant que pour les qualifications : la ligne nait non verifiee et ne
+ * rapporte rien tant que l'agence ne l'a pas controlee. Sans cela, le score se
+ * declarerait tout seul, et l'etablissement classerait sur de la parole.
+ */
+model ExperienceProfessionnelle {
+  id         String   @id @default(uuid()) @db.Uuid
+  candidatId String   @db.Uuid
+  candidat   Candidat @relation(fields: [candidatId], references: [id], onDelete: Cascade)
+
+  employeur String
+  intitule  String
+
+  /// Rattachement au referentiel des qualifications.
+  ///
+  /// Null quand le poste n'y correspond a rien — caissiere, manutention. Cette
+  /// experience-la compte pour moitie : elle dit quelque chose de la personne
+  /// au travail, rien de son metier. `SetNull` et non `Cascade` : retirer une
+  /// qualification du referentiel ne doit pas effacer le passe professionnel de
+  /// ceux qui la detenaient.
+  qualificationId String?        @db.Uuid
+  qualification   Qualification? @relation(fields: [qualificationId], references: [id], onDelete: SetNull)
+
+  debutLe DateTime  @db.Date
+  /// Nulle quand le poste est toujours occupe. La duree se compte alors jusqu'a
+  /// aujourd'hui, et elle grandit d'elle-meme — ce qui est exact, et evite de
+  /// demander une mise a jour que personne ne fait.
+  finLe   DateTime? @db.Date
+
+  /// Temps de travail, en pourcentage d'un temps plein. Le temps partiel est la
+  /// norme dans l'aide a domicile : compter deux ans a mi-temps comme deux ans
+  /// de terrain surestimerait la moitie du vivier.
+  quotitePourcent Int @default(100)
+
+  description String?
+
+  /// Controle par l'agence, sur certificat de travail ou attestation. Tant
+  /// qu'elle est nulle, la ligne s'affiche sur la fiche mais ne compte pas.
+  verifieeLe  DateTime?
+  verifieePar String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([candidatId, debutLe])
+  @@index([qualificationId])
+  @@map("experience_professionnelle")
 }
 
 model Disponibilite {
@@ -321,6 +416,19 @@ model Client {
   siret         String     @unique
   type          TypeClient @default(SAAD)
 
+  /// Regime sous lequel la structure intervient, et la piece qui l'etablit.
+  ///
+  /// Nullable a dessein : les fiches creees avant l'introduction de la regle
+  /// n'ont pas de statut, et leur en inventer un serait pire que l'absence. Le
+  /// champ n'est pas pour autant facultatif — une fiche sans statut ne peut
+  /// pas etre activee, donc ne recoit aucune mise a disposition.
+  statutReglementaire StatutReglementaire?
+  numeroSap           String?
+  numeroAgrement      String?
+  numeroFiness        String?
+  arreteReference     String?
+  arreteDate          DateTime?
+
   // Sert a calculer le salaire de reference de l'interimaire : c'est la
   // convention de l'entreprise utilisatrice qui s'applique, pas celle du candidat.
   conventionCollective String?
@@ -353,9 +461,14 @@ model LieuIntervention {
   adresse    String
   codePostal String
   ville      String
+  // Meme regle que pour le candidat : calculees, jamais saisies. Une mission
+  // dont le lieu n'est pas situe n'a aucun candidat retenu, puisque la distance
+  // n'est mesurable pour personne.
   latitude   Float?
   longitude  Float?
   geom       Unsupported("geography(Point, 4326)")?
+  geocodeLe        DateTime?
+  geocodePrecision PrecisionGeocodage?
 
   etage     String?
   codeAcces String?
@@ -385,7 +498,6 @@ model Mission {
   lieuId   String           @db.Uuid
   lieu     LieuIntervention @relation(fields: [lieuId], references: [id], onDelete: Restrict)
 
-  filiere                Filiere
   qualificationRequiseId String        @db.Uuid
   qualificationRequise   Qualification @relation(fields: [qualificationRequiseId], references: [id], onDelete: Restrict)
 

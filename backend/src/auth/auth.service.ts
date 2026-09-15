@@ -9,6 +9,7 @@ import type {
   UtilisateurSession,
 } from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsCompteService } from '../mail/notifications-compte.service';
 import { hacherMotDePasse, verifierMotDePasse } from './mots-de-passe';
 import { SessionsService } from './sessions.service';
 import type { ChargeUtileJeton } from './auth.types';
@@ -43,6 +44,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly sessions: SessionsService,
+    private readonly notifications: NotificationsCompteService,
   ) {}
 
   /**
@@ -221,6 +223,13 @@ export class AuthService {
     });
 
     await this.sessions.revoquerTout(utilisateur.id);
+
+    // L'avertissement part meme quand le changement est parfaitement legitime.
+    // C'est tout son interet : celui qui prend un compte commence par en
+    // changer le mot de passe, et sans ce message le proprietaire ne
+    // l'apprendrait qu'en se retrouvant dehors, sans savoir ni pourquoi ni
+    // quand.
+    await this.notifications.motDePasseChange(utilisateur.id, 'compte');
   }
 
   private emettreAcces(session: UtilisateurSession): {

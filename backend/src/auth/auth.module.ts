@@ -3,10 +3,13 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule, type JwtModuleOptions } from '@nestjs/jwt';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { GeocodageModule } from '../geocodage/geocodage.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { InscriptionsService } from './inscriptions.service';
 import { VerificationEmailService } from './verification-email.service';
+import { ReinitialisationService } from './reinitialisation.service';
+import { JetonsUsageUniqueService } from './jetons-usage-unique.service';
 import { SessionsService } from './sessions.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
@@ -33,6 +36,7 @@ type DureeJeton = NonNullable<NonNullable<JwtModuleOptions['signOptions']>['expi
         { name: 'connexion', limit: 300, ttl: 60_000 },
       ],
     }),
+    GeocodageModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -55,6 +59,8 @@ type DureeJeton = NonNullable<NonNullable<JwtModuleOptions['signOptions']>['expi
     AuthService,
     InscriptionsService,
     VerificationEmailService,
+    ReinitialisationService,
+    JetonsUsageUniqueService,
     SessionsService,
     // L'ordre compte : on limite le debit, puis on identifie, puis on verifie le role.
     { provide: APP_GUARD, useClass: ThrottlerGuard },

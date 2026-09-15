@@ -6,6 +6,7 @@ import type {
   CandidatPropose,
   ClassementMission,
   ClassementQuery,
+  MotifExclusion,
   PointFortCandidat,
   ScoreDetail,
   UtilisateurSession,
@@ -28,7 +29,6 @@ const fichePourScore = Prisma.validator<Prisma.CandidatDefaultArgs>()({
     nom: true,
     prenom: true,
     statut: true,
-    filieres: true,
     rayonKm: true,
     latitude: true,
     longitude: true,
@@ -41,6 +41,20 @@ const fichePourScore = Prisma.validator<Prisma.CandidatDefaultArgs>()({
         verifieeLe: true,
         expireLe: true,
         qualification: { select: { id: true, code: true, libelle: true } },
+      },
+    },
+    experiences: {
+      // Seules les lignes verifiees par l'agence sont chargees. Le filtre est
+      // pose ici, dans la requete, et non dans le bareme : une experience non
+      // controlee ne doit pas meme parvenir au calcul, sans quoi il suffirait
+      // d'oublier une condition quelque part pour que la declaration se mette a
+      // rapporter des points.
+      where: { verifieeLe: { not: null } },
+      select: {
+        debutLe: true,
+        finLe: true,
+        quotitePourcent: true,
+        qualificationId: true,
       },
     },
     disponibilites: {
@@ -92,7 +106,6 @@ export class MatchingService {
       select: {
         id: true,
         agenceId: true,
-        filiere: true,
         qualificationRequiseId: true,
         dateDebut: true,
         dateFin: true,
@@ -119,12 +132,19 @@ export class MatchingService {
 
     return {
       statut: fiche.statut,
-      filieres: fiche.filieres,
       rayonKm: fiche.rayonKm,
       latitude: fiche.latitude,
       longitude: fiche.longitude,
-      diplomeObtenuLe: valide ? (lien?.obtenueLe ?? null) : null,
       diplomeValide: valide,
+      experiences: fiche.experiences.map((poste) => ({
+        debutLe: poste.debutLe,
+        finLe: poste.finLe,
+        quotitePourcent: poste.quotitePourcent,
+        // Qualifiante quand le poste releve du diplome exige par cette
+        // mission-ci : la meme fiche n'a donc pas la meme experience selon le
+        // besoin, ce qui est exactement le propos.
+        qualifiante: poste.qualificationId === qualificationRequiseId,
+      })),
       creneaux: fiche.disponibilites,
       absences: fiche.indisponibilites,
       engagements: fiche.missions,
@@ -196,7 +216,6 @@ export class MatchingService {
     });
 
     const besoin: BesoinAPourvoir = {
-      filiere: mission.filiere,
       dateDebut: mission.dateDebut,
       dateFin: mission.dateFin,
       heureDebut: mission.heureDebut,
@@ -257,17 +276,26 @@ export class MatchingService {
   }
 
   /**
-   * Score d'un couple mission / candidat, figé au moment de la proposition.
+   * Éligibilité et score d'un couple mission / candidat.
    *
-   * Il est recalculé et stocké sur la ligne : un score qui bougerait après coup
-   * — parce que le candidat a déplacé une disponibilité — rendrait la décision
-   * de l'établissement incompréhensible a posteriori.
+   * Les deux sont rendus ensemble, et c'est le point de cette méthode. Le
+   * classement de l'agence passait par la porte d'exclusion, la candidature du
+   * côté public ne vérifiait que le statut et le diplôme, et le score figé ne
+   * vérifiait rien du tout : trois chemins, trois vérités. Une intervenante
+   * hors de son rayon pouvait postuler, obtenir un score, apparaître chez
+   * l'établissement — et rester introuvable dans le classement de l'agence, qui
+   * l'écartait.
+   *
+   * La porte est ici une seule fois. Qui veut scorer traverse d'abord ce que
+   * `classer()` applique déjà.
    */
-  async scorer(missionId: string, candidatId: string): Promise<ScoreDetail | null> {
+  async evaluer(
+    missionId: string,
+    candidatId: string,
+  ): Promise<{ motifs: MotifExclusion[]; score: ScoreDetail } | null> {
     const mission = await this.prisma.mission.findUnique({
       where: { id: missionId },
       select: {
-        filiere: true,
         qualificationRequiseId: true,
         dateDebut: true,
         dateFin: true,
@@ -286,14 +314,30 @@ export class MatchingService {
       return null;
     }
 
-    return calculerScore(this.profil(fiche, mission.qualificationRequiseId), {
-      filiere: mission.filiere,
+    const profil = this.profil(fiche, mission.qualificationRequiseId);
+
+    const besoin: BesoinAPourvoir = {
       dateDebut: mission.dateDebut,
       dateFin: mission.dateFin,
       heureDebut: mission.heureDebut,
       heureFin: mission.heureFin,
       latitude: mission.lieu.latitude,
       longitude: mission.lieu.longitude,
-    });
+    };
+
+    return { motifs: motifsExclusion(profil, besoin), score: calculerScore(profil, besoin) };
+  }
+
+  /**
+   * Score seul, figé au moment de la proposition.
+   *
+   * Il est recalculé et stocké sur la ligne : un score qui bougerait après coup
+   * — parce que le candidat a déplacé une disponibilité — rendrait la décision
+   * de l'établissement incompréhensible a posteriori.
+   */
+  async scorer(missionId: string, candidatId: string): Promise<ScoreDetail | null> {
+    const evaluation = await this.evaluer(missionId, candidatId);
+
+    return evaluation?.score ?? null;
   }
 }

@@ -178,7 +178,6 @@ export class PropositionsService {
         id: mission.id,
         reference: mission.reference,
         statut: mission.statut,
-        filiere: mission.filiere,
         client: mission.client,
         lieu: mission.lieu,
         qualificationRequise: mission.qualificationRequise,
@@ -193,8 +192,11 @@ export class PropositionsService {
         candidaturesEnAttente: mission._count.propositions,
         candidatRetenuId: mission.candidatRetenuId,
         // La distance n'a de sens que depuis une fiche candidat donnee : sur
-        // une candidature, c'est le score qui porte deja cette information.
+        // une candidature, c'est le score qui porte deja cette information. Le
+        // rayon suit la meme logique — et de toute facon, une candidature hors
+        // rayon ne peut plus exister : la porte la refuse a la creation.
         distanceKm: null,
+        horsRayon: null,
       },
     };
   }
@@ -215,7 +217,6 @@ export class PropositionsService {
       select: {
         id: true,
         statut: true,
-        filiere: true,
         qualificationRequiseId: true,
         qualificationRequise: { select: { code: true } },
       },
@@ -231,7 +232,7 @@ export class PropositionsService {
 
     const candidat = await this.prisma.candidat.findUnique({
       where: { id: candidatId },
-      select: { id: true, statut: true, filieres: true },
+      select: { id: true, statut: true },
     });
 
     if (!candidat) {
@@ -247,12 +248,6 @@ export class PropositionsService {
       );
     }
 
-    if (!candidat.filieres.includes(mission.filiere)) {
-      throw new ForbiddenException(
-        `Cette mission releve de la filiere ${mission.filiere.toLowerCase()}, absente de votre profil`,
-      );
-    }
-
     const detient = await this.missions.detientQualification(
       candidatId,
       mission.qualificationRequiseId,
@@ -264,11 +259,30 @@ export class PropositionsService {
       );
     }
 
+    // La meme porte que celle du classement de l'agence, et c'est tout l'objet
+    // de cet appel. Elle ne verifiait ici que le statut et le diplome : une
+    // intervenante hors de son rayon, absente sur la periode ou deja engagee
+    // ailleurs pouvait postuler, obtenir un score, apparaitre chez
+    // l'etablissement — et rester introuvable dans le classement de l'agence,
+    // qui l'ecartait. Trois ecrans, trois verites.
+    const evaluation = await this.matching.evaluer(missionId, candidatId);
+
+    if (!evaluation) {
+      throw new NotFoundException('Mission introuvable');
+    }
+
+    if (evaluation.motifs.length) {
+      // Le libelle du motif est repris tel quel : il est deja ecrit pour etre
+      // lu par la personne concernee, et il chiffre l'ecart plutot que de dire
+      // « non ». « A 42 km, au-dela du rayon de 15 km » se corrige tout seul.
+      throw new ForbiddenException(evaluation.motifs.map((motif) => motif.libelle).join(' · '));
+    }
+
     // Le score est fige au moment de la candidature. Le recalculer a
     // l'affichage le ferait bouger apres coup - parce que le candidat a deplace
     // une disponibilite - et rendrait la decision de l'etablissement
     // incomprehensible a posteriori.
-    const score = await this.matching.scorer(missionId, candidatId);
+    const score = evaluation.score;
 
     try {
       const proposition = await this.prisma.proposition.create({
@@ -278,8 +292,8 @@ export class PropositionsService {
           statut: 'ACCEPTEE_CANDIDAT',
           repondueLe: new Date(),
           message: message ?? null,
-          score: score?.total ?? null,
-          detailScore: score ? (score as unknown as Prisma.InputJsonValue) : undefined,
+          score: score.total,
+          detailScore: score as unknown as Prisma.InputJsonValue,
         },
         ...avecRelations,
       });

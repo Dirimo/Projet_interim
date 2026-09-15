@@ -23,7 +23,6 @@ describe('classement des candidats', () => {
     return {
       lieuId: jeu.lieuA,
       qualificationRequiseId: jeu.qualification,
-      filiere: 'ETABLISSEMENT',
       dateDebut: DEMAIN,
       dateFin: DEMAIN,
       heureDebut: '07:00',
@@ -131,6 +130,85 @@ describe('classement des candidats', () => {
       expect(somme).toBe(retenue.score.total);
     });
 
+    /**
+     * La propriete centrale de la composante « experience ».
+     *
+     * Une experience declaree et non controlee ne doit rien rapporter, sinon
+     * il suffirait de s'inventer cinq ans de terrain pour remonter en tete.
+     * C'est le meme invariant que sur les diplomes, verifie ici de bout en
+     * bout parce que le filtre vit dans la requete Prisma, pas dans le bareme.
+     */
+    it('ne compte pas une experience que l agence n a pas verifiee', async () => {
+      const poste = await prisma.experienceProfessionnelle.create({
+        data: {
+          candidatId: jeu.candidatA,
+          qualificationId: jeu.qualification,
+          employeur: 'SAAD Les Glycines',
+          intitule: 'Auxiliaire de vie',
+          debutLe: new Date('2018-01-01T00:00:00.000Z'),
+          quotitePourcent: 100,
+        },
+      });
+
+      const id = await publier();
+
+      const avantVerification = await avec(app, agence)
+        .get(`/api/missions/${id}/candidats`)
+        .expect(200);
+
+      const points = (corps: {
+        retenus: {
+          candidat: { id: string };
+          score: { composantes: { cle: string; points: number }[] };
+        }[];
+      }): number =>
+        corps.retenus
+          .find((ligne) => ligne.candidat.id === jeu.candidatA)!
+          .score.composantes.find((c) => c.cle === 'experience')!.points;
+
+      expect(points(avantVerification.body)).toBe(0);
+
+      await prisma.experienceProfessionnelle.update({
+        where: { id: poste.id },
+        data: { verifieeLe: new Date(), verifieePar: 'agence' },
+      });
+
+      const apres = await avec(app, agence).get(`/api/missions/${id}/candidats`).expect(200);
+
+      // Plus de cinq ans de terrain sur le diplome exige : la composante est au
+      // maximum.
+      expect(points(apres.body)).toBe(40);
+    });
+
+    it('ne compte qu a moitie une experience hors du metier exige', async () => {
+      await prisma.experienceProfessionnelle.create({
+        data: {
+          candidatId: jeu.candidatA,
+          // Sans rattachement au referentiel : un poste qui dit quelque chose
+          // de la personne au travail, rien de ce metier-ci.
+          qualificationId: null,
+          employeur: 'Supermarche',
+          intitule: 'Hotesse de caisse',
+          debutLe: new Date('2018-01-01T00:00:00.000Z'),
+          quotitePourcent: 100,
+          verifieeLe: new Date(),
+          verifieePar: 'agence',
+        },
+      });
+
+      const id = await publier();
+      const reponse = await avec(app, agence).get(`/api/missions/${id}/candidats`).expect(200);
+
+      const composante = reponse.body.retenus
+        .find((ligne: { candidat: { id: string } }) => ligne.candidat.id === jeu.candidatA)
+        .score.composantes.find((c: { cle: string }) => c.cle === 'experience');
+
+      // Huit ans hors metier, ramenes a quatre : en dessous du plafond de cinq.
+      expect(composante.points).toBeGreaterThan(0);
+      expect(composante.points).toBeLessThan(40);
+      expect(composante.explication).toMatch(/moitie/);
+    });
+
     it('ecarte, avec le motif, un profil sans le diplome exige', async () => {
       await prisma.qualificationCandidat.deleteMany({ where: { candidatId: jeu.candidatA } });
 
@@ -193,7 +271,7 @@ describe('classement des candidats', () => {
 
   describe('score fige sur la candidature', () => {
     it('enregistre le score et sa decomposition au moment de postuler', async () => {
-      const id = await publier({ filiere: 'ETABLISSEMENT' });
+      const id = await publier();
 
       const reponse = await avec(app, candidat)
         .post(`/api/missions/${id}/candidatures`)

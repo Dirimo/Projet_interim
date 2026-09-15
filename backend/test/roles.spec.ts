@@ -67,7 +67,6 @@ describe('gardes de role', () => {
       const qualification = {
         code: 'AVS',
         libelle: 'Auxiliaire de vie sociale',
-        filieres: ['DOMICILE'],
       };
 
       await avec(app, charge).post('/api/qualifications').send(qualification).expect(403);

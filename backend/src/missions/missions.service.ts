@@ -18,7 +18,8 @@ import type {
   UtilisateurSession,
 } from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
-import { distanceKm } from '../matching/score';
+import { dansLeRayon, distanceKm } from '../matching/score';
+import { GeocodageService } from '../geocodage/geocodage.service';
 
 /** Etats dans lesquels une mission cherche encore quelqu'un. */
 const ETATS_OUVERTS = [
@@ -52,10 +53,11 @@ const avecRelations = Prisma.validator<Prisma.MissionDefaultArgs>()({
 
 type MissionChargee = Prisma.MissionGetPayload<typeof avecRelations>;
 
-/** Position du candidat connecte, pour calculer une distance sans requete par ligne. */
+/** Position et rayon du candidat connecte, lus une fois pour toute une liste. */
 interface PointCandidat {
   latitude: number | null;
   longitude: number | null;
+  rayonKm: number;
 }
 
 /**
@@ -139,14 +141,20 @@ function jourIso(date: Date): string {
 
 @Injectable()
 export class MissionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly geocodage: GeocodageService,
+  ) {}
 
   private resume(mission: MissionChargee, depuis?: PointCandidat): MissionResume {
+    const distance = depuis
+      ? distanceKm(depuis.latitude, depuis.longitude, mission.lieu.latitude, mission.lieu.longitude)
+      : null;
+
     return {
       id: mission.id,
       reference: mission.reference,
       statut: mission.statut,
-      filiere: mission.filiere,
       client: mission.client,
       lieu: {
         id: mission.lieu.id,
@@ -165,14 +173,12 @@ export class MissionsService {
       motifRecours: mission.motifRecours,
       candidaturesEnAttente: mission._count.propositions,
       candidatRetenuId: mission.candidatRetenuId,
-      distanceKm: depuis
-        ? distanceKm(
-            depuis.latitude,
-            depuis.longitude,
-            mission.lieu.latitude,
-            mission.lieu.longitude,
-          )
-        : null,
+      distanceKm: distance,
+      // La mission reste visible au-dela du rayon, et le dit. La masquer
+      // priverait la personne de l'information qui lui permettrait d'agir :
+      // elargir son rayon de cinq kilometres lui ouvrirait peut-etre dix
+      // missions, et une liste vide ressemble a une panne.
+      horsRayon: depuis === undefined ? null : dansLeRayon(distance, depuis.rayonKm) === false,
     };
   }
 
@@ -189,7 +195,7 @@ export class MissionsService {
 
     const fiche = await this.prisma.candidat.findUnique({
       where: { id: session.candidatId },
-      select: { latitude: true, longitude: true },
+      select: { latitude: true, longitude: true, rayonKm: true },
     });
 
     return fiche ?? undefined;
@@ -217,16 +223,12 @@ export class MissionsService {
       this.detientQualification(candidatId, mission.qualificationRequiseId),
       this.prisma.candidat.findUnique({
         where: { id: candidatId },
-        select: { filieres: true, statut: true },
+        select: { statut: true },
       }),
     ]);
 
     return [
       { libelle: libelleDiplome, verifie: detient },
-      {
-        libelle: `Filiere ${mission.filiere.toLowerCase()}`,
-        verifie: candidat?.filieres.includes(mission.filiere) ?? false,
-      },
       { libelle: 'Profil valide par l agence', verifie: candidat?.statut === 'ACTIF' },
     ];
   }
@@ -278,7 +280,7 @@ export class MissionsService {
         orderBy: { libelle: 'asc' },
       }),
       this.prisma.qualification.findMany({
-        select: { id: true, code: true, libelle: true, filieres: true, romeCode: true },
+        select: { id: true, code: true, libelle: true, romeCode: true },
         orderBy: { code: 'asc' },
       }),
     ]);
@@ -396,6 +398,51 @@ export class MissionsService {
     return `${prefixe}${String(rang).padStart(4, '0')}`;
   }
 
+  /**
+   * Un lieu sans coordonnées ne peut pas porter de mission.
+   *
+   * La distance devient alors non mesurable **pour tout le monde** : la porte
+   * d'éligibilité écarte le vivier entier avec le motif « coordonnées
+   * manquantes », et l'établissement contemple un classement vide sans
+   * comprendre pourquoi. Pire depuis que la candidature traverse la même
+   * porte : le candidat se voit refuser pour une erreur qui n'est pas la
+   * sienne.
+   *
+   * Refuser à la publication traite la cause au lieu du symptôme, et le fait au
+   * seul moment où quelqu'un peut encore corriger.
+   *
+   * Une tentative de géocodage précède le refus : si la BAN était indisponible
+   * quand le lieu a été saisi, l'adresse est parfaitement bonne et il serait
+   * absurde de bloquer un besoin urgent pour une panne réseau passée.
+   */
+  private async exigerLieuLocalise(lieu: {
+    id: string;
+    latitude: number | null;
+    longitude: number | null;
+    adresse: string;
+    codePostal: string;
+    ville: string;
+  }): Promise<void> {
+    if (lieu.latitude !== null && lieu.longitude !== null) {
+      return;
+    }
+
+    const point = await this.geocodage.situer('lieu_intervention', lieu.id, lieu);
+
+    if (point) {
+      return;
+    }
+
+    // Les lieux se corrigent depuis le back-office, pas depuis l'espace client :
+    // le message dit donc vers qui se tourner, sinon l'établissement resterait
+    // devant un refus qu'il n'a aucun moyen de lever.
+    throw new BadRequestException(
+      `L adresse du lieu d intervention n a pas pu etre localisee (${lieu.adresse}, ` +
+        `${lieu.codePostal} ${lieu.ville}). Sans coordonnees, aucun candidat ne peut etre ` +
+        `classe sur cette mission : faire corriger l adresse par l agence avant de publier.`,
+    );
+  }
+
   async creer(donnees: MissionCreate, session: UtilisateurSession): Promise<MissionResume> {
     // Un client publie toujours pour lui-meme : son identifiant vient du jeton,
     // jamais du corps de la requete, sinon il publierait chez un concurrent.
@@ -425,26 +472,29 @@ export class MissionsService {
 
     const lieu = await this.prisma.lieuIntervention.findFirst({
       where: { id: donnees.lieuId, clientId: client.id },
-      select: { id: true },
+      select: {
+        id: true,
+        latitude: true,
+        longitude: true,
+        adresse: true,
+        codePostal: true,
+        ville: true,
+      },
     });
 
     if (!lieu) {
       throw new NotFoundException('Lieu introuvable pour ce client');
     }
 
+    await this.exigerLieuLocalise(lieu);
+
     const qualification = await this.prisma.qualification.findUnique({
       where: { id: donnees.qualificationRequiseId },
-      select: { id: true, filieres: true },
+      select: { id: true },
     });
 
     if (!qualification) {
       throw new NotFoundException('Qualification introuvable');
-    }
-
-    if (!qualification.filieres.includes(donnees.filiere)) {
-      throw new BadRequestException(
-        'Cette qualification ne couvre pas la filiere demandee pour la mission',
-      );
     }
 
     const mission = await this.prisma.$transaction(async (tx) => {
@@ -456,7 +506,6 @@ export class MissionsService {
           agenceId: client.agenceId,
           clientId: client.id,
           lieuId: donnees.lieuId,
-          filiere: donnees.filiere,
           qualificationRequiseId: donnees.qualificationRequiseId,
           // Une mission deposee par un client est publiee d'emblee : la faire
           // naitre en brouillon obligerait l'agence a la republier a la main,
@@ -509,7 +558,6 @@ export class MissionsService {
         ...(donnees.qualificationRequiseId
           ? { qualificationRequiseId: donnees.qualificationRequiseId }
           : {}),
-        ...(donnees.filiere ? { filiere: donnees.filiere } : {}),
         ...(donnees.dateDebut ? { dateDebut: new Date(donnees.dateDebut) } : {}),
         ...(donnees.dateFin ? { dateFin: new Date(donnees.dateFin) } : {}),
         ...(heureDebut ? { heureDebut } : {}),

@@ -1,4 +1,9 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
   ClientCreate,
@@ -12,6 +17,7 @@ import type {
   PageResultat,
 } from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { GeocodageService } from '../geocodage/geocodage.service';
 
 const avecComptes = {
   include: { _count: { select: { lieux: true } } },
@@ -43,6 +49,14 @@ function versResume(client: ClientAvecComptes): ClientResume {
     contactEmail: client.contactEmail,
     contactTel: client.contactTel,
     actif: client.actif,
+    statutReglementaire: client.statutReglementaire,
+    numeroSap: client.numeroSap,
+    numeroAgrement: client.numeroAgrement,
+    numeroFiness: client.numeroFiness,
+    arreteReference: client.arreteReference,
+    // Date seule, sans heure : un arrete est date au jour, et renvoyer un
+    // horodatage inviterait a afficher une precision qui n'existe pas.
+    arreteDate: client.arreteDate?.toISOString().slice(0, 10) ?? null,
     nombreLieux: client._count.lieux,
   };
 }
@@ -58,6 +72,7 @@ function versLieuResume(lieu: LieuAvecComptes): LieuResume {
     ville: lieu.ville,
     latitude: lieu.latitude,
     longitude: lieu.longitude,
+    geocodePrecision: lieu.geocodePrecision,
     etage: lieu.etage,
     codeAcces: lieu.codeAcces,
     consignes: lieu.consignes,
@@ -68,7 +83,10 @@ function versLieuResume(lieu: LieuAvecComptes): LieuResume {
 
 @Injectable()
 export class ClientsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly geocodage: GeocodageService,
+  ) {}
 
   async lister(query: ClientListQuery, agenceId: string): Promise<PageResultat<ClientResume>> {
     const where: Prisma.ClientWhereInput = {
@@ -126,7 +144,22 @@ export class ClientsService {
   }
 
   async modifier(id: string, donnees: ClientUpdate, agenceId: string): Promise<ClientResume> {
-    await this.exigerClient(id, agenceId, avecComptes);
+    const existant = await this.exigerClient(id, agenceId, avecComptes);
+
+    // Une fiche sans statut reglementaire ne peut pas etre activee.
+    //
+    // C'est le seul endroit ou la regle mord vraiment. Le statut decide de ce
+    // que la structure a le droit de faire, et — si elle est autorisee au titre
+    // du CASF — de l'application de la duree minimale d'exercice prealable a
+    // l'interim. Activer sans l'avoir renseigne reviendrait a envoyer des
+    // intervenants sans savoir sous quel regime.
+    const statutApres = donnees.statutReglementaire ?? existant.statutReglementaire;
+
+    if (donnees.actif === true && !statutApres) {
+      throw new BadRequestException(
+        'Renseignez le statut reglementaire de la structure avant de l activer',
+      );
+    }
 
     const client = await this.prisma.client.update({
       where: { id },
@@ -146,8 +179,18 @@ export class ClientsService {
   async creerLieu(clientId: string, donnees: LieuCreate, agenceId: string): Promise<LieuResume> {
     await this.exigerClient(clientId, agenceId, avecComptes);
 
-    const lieu = await this.prisma.lieuIntervention.create({
+    const cree = await this.prisma.lieuIntervention.create({
       data: { ...donnees, clientId },
+      select: { id: true },
+    });
+
+    // Un lieu sans coordonnees rend toute mission qui s'y deroule impossible a
+    // pourvoir : la distance n'est mesurable pour personne, donc tout le vivier
+    // est ecarte. Situer ici evite d'avoir a le decouvrir sur un classement vide.
+    await this.geocodage.situer('lieu_intervention', cree.id, donnees);
+
+    const lieu = await this.prisma.lieuIntervention.findUniqueOrThrow({
+      where: { id: cree.id },
       include: { _count: { select: { missions: true } } },
     });
 
@@ -166,7 +209,7 @@ export class ClientsService {
     // identifiant de lieu devine permettrait de modifier celui d'un autre client.
     const existant = await this.prisma.lieuIntervention.findFirst({
       where: { id: lieuId, clientId },
-      select: { id: true },
+      select: { id: true, adresse: true, codePostal: true, ville: true },
     });
 
     if (!existant) {
@@ -178,6 +221,17 @@ export class ClientsService {
       data: donnees,
       include: { _count: { select: { missions: true } } },
     });
+
+    if (!GeocodageService.memeAdresse(existant, lieu)) {
+      await this.geocodage.situer('lieu_intervention', lieuId, lieu);
+
+      return this.prisma.lieuIntervention
+        .findUniqueOrThrow({
+          where: { id: lieuId },
+          include: { _count: { select: { missions: true } } },
+        })
+        .then(versLieuResume);
+    }
 
     return versLieuResume(lieu);
   }

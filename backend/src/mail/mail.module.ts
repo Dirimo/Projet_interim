@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { MailService } from './mail.service';
+import { NotificationsCompteService } from './notifications-compte.service';
 
 /**
  * Global : la sortie courriel n'appartient a aucun domaine. L'authentification
@@ -8,7 +9,7 @@ import { MailService } from './mail.service';
  */
 @Global()
 @Module({
-  providers: [MailService],
-  exports: [MailService],
+  providers: [MailService, NotificationsCompteService],
+  exports: [MailService, NotificationsCompteService],
 })
 export class MailModule {}

@@ -1,0 +1,63 @@
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from './mail.service';
+import { courrielMotDePasseChange } from './gabarits';
+
+/**
+ * Ce qu'on ecrit a quelqu'un a propos de son compte.
+ *
+ * Regroupe ici plutot que disperse dans les services metier, pour une raison
+ * precise : retrouver le prenom d'un compte demande de savoir qu'il pend a un
+ * candidat, a un client, ou a personne quand c'est du personnel d'agence. Cette
+ * jointure n'a rien a faire dans `AuthService`, et la dupliquer a chaque
+ * notification la ferait diverger.
+ */
+@Injectable()
+export class NotificationsCompteService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mail: MailService,
+  ) {}
+
+  /** Adresse et prenom d'affichage, selon ce a quoi le compte est rattache. */
+  private async destinataire(
+    utilisateurId: string,
+  ): Promise<{ email: string; prenom: string | null } | null> {
+    const compte = await this.prisma.utilisateur.findUnique({
+      where: { id: utilisateurId },
+      select: {
+        email: true,
+        candidat: { select: { prenom: true } },
+        client: { select: { contactNom: true } },
+      },
+    });
+
+    if (!compte) {
+      return null;
+    }
+
+    return {
+      email: compte.email,
+      prenom: compte.candidat?.prenom ?? compte.client?.contactNom ?? null,
+    };
+  }
+
+  /**
+   * Avertit qu'un mot de passe vient de changer.
+   *
+   * Jamais bloquant : le mot de passe est deja modifie quand on arrive ici, et
+   * faire echouer la requete sur une panne de SMTP laisserait la personne
+   * persuadee que son changement n'a pas pris — alors que son ancien mot de
+   * passe ne fonctionne plus. `MailService.envoyer` absorbe deja l'echec et le
+   * journalise ; il n'y a rien a rattraper de plus.
+   */
+  async motDePasseChange(utilisateurId: string, origine: 'compte' | 'agence'): Promise<void> {
+    const cible = await this.destinataire(utilisateurId);
+
+    if (!cible) {
+      return;
+    }
+
+    await this.mail.envoyer(courrielMotDePasseChange(cible.email, cible.prenom, origine));
+  }
+}

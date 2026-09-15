@@ -13,11 +13,13 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   declarationDiplomeSchema,
   disponibilitesRemplaceSchema,
+  experienceCreateSchema,
   monProfilUpdateSchema,
   type CandidatDetail,
   type CompletudeProfil,
   type DeclarationDiplome,
   type DisponibilitesRemplace,
+  type ExperienceCreate,
   type MonProfilUpdate,
   type UtilisateurSession,
 } from '@releve/shared';
@@ -76,6 +78,24 @@ export class MonProfilController {
     @UtilisateurCourant() session: UtilisateurSession,
   ): Promise<CandidatDetail> {
     return this.profil.declarerDiplome(donnees, session);
+  }
+
+  @Post('experiences')
+  @ApiOperation({ summary: 'Declarer un poste occupe, en attente de verification' })
+  declarerExperience(
+    @Body(new ZodValidationPipe(experienceCreateSchema)) donnees: ExperienceCreate,
+    @UtilisateurCourant() session: UtilisateurSession,
+  ): Promise<CandidatDetail> {
+    return this.profil.declarerExperience(donnees, session);
+  }
+
+  @Delete('experiences/:experienceId')
+  @ApiOperation({ summary: 'Retirer un poste que l agence n a pas encore verifie' })
+  retirerExperience(
+    @Param('experienceId', ParseUUIDPipe) experienceId: string,
+    @UtilisateurCourant() session: UtilisateurSession,
+  ): Promise<CandidatDetail> {
+    return this.profil.retirerExperience(experienceId, session);
   }
 
   @Delete('diplomes/:qualificationId')

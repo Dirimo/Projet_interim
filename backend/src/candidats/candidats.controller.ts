@@ -16,6 +16,8 @@ import {
   candidatListQuerySchema,
   candidatUpdateSchema,
   disponibilitesRemplaceSchema,
+  experienceCreateSchema,
+  experienceVerificationSchema,
   indisponibiliteSchema,
   qualificationCandidatSchema,
   qualificationCandidatUpdateSchema,
@@ -26,6 +28,8 @@ import {
   type CandidatResume,
   type CandidatUpdate,
   type DisponibilitesRemplace,
+  type ExperienceCreate,
+  type ExperienceVerification,
   type Indisponibilite,
   type PageResultat,
   type QualificationCandidatCreate,
@@ -45,8 +49,7 @@ export class CandidatsController {
   constructor(private readonly candidats: CandidatsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Lister le vivier, filtrable par filiere et par statut' })
-  @ApiQuery({ name: 'filiere', required: false, enum: ['DOMICILE', 'ETABLISSEMENT'] })
+  @ApiOperation({ summary: 'Lister le vivier, filtrable par statut' })
   @ApiQuery({ name: 'statut', required: false })
   @ApiQuery({ name: 'recherche', required: false })
   @ApiQuery({ name: 'page', required: false, type: Number })
@@ -123,6 +126,42 @@ export class CandidatsController {
     @AgenceCourante() agenceId: string,
   ): Promise<CandidatDetail> {
     return this.candidats.retirerQualification(id, qualificationId, agenceId);
+  }
+
+  @Post(':id/experiences')
+  @ApiOperation({ summary: 'Ajouter un poste au parcours du candidat' })
+  ajouterExperience(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(experienceCreateSchema)) donnees: ExperienceCreate,
+    @AgenceCourante() agenceId: string,
+  ): Promise<CandidatDetail> {
+    return this.candidats.ajouterExperience(id, donnees, agenceId);
+  }
+
+  // Le seul geste qui fait entrer une experience dans le score. Separe de la
+  // saisie a dessein : declarer et constater ne sont pas la meme action, et
+  // les confondre reviendrait a ne plus savoir quelles lignes ont ete
+  // controlees sur piece.
+  @Patch(':id/experiences/:experienceId')
+  @ApiOperation({ summary: 'Verifier un poste sur certificat de travail, ou le devalider' })
+  verifierExperience(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('experienceId', ParseUUIDPipe) experienceId: string,
+    @Body(new ZodValidationPipe(experienceVerificationSchema)) donnees: ExperienceVerification,
+    @UtilisateurCourant() utilisateur: UtilisateurSession,
+    @AgenceCourante() agenceId: string,
+  ): Promise<CandidatDetail> {
+    return this.candidats.verifierExperience(id, experienceId, donnees, utilisateur, agenceId);
+  }
+
+  @Delete(':id/experiences/:experienceId')
+  @ApiOperation({ summary: 'Retirer un poste du parcours' })
+  retirerExperience(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('experienceId', ParseUUIDPipe) experienceId: string,
+    @AgenceCourante() agenceId: string,
+  ): Promise<CandidatDetail> {
+    return this.candidats.retirerExperience(id, experienceId, agenceId);
   }
 
   @Put(':id/disponibilites')

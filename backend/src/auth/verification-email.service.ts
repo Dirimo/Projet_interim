@@ -1,11 +1,12 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHash, randomBytes } from 'node:crypto';
 import type { ReponseConnexion } from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { courrielVerification } from '../mail/gabarits';
 import { AuthService } from './auth.service';
+import { JetonsUsageUniqueService } from './jetons-usage-unique.service';
+import { lienCourriel } from './liens';
 
 /** Ce qu'il faut pour rediger le courriel et retrouver le compte. */
 interface Destinataire {
@@ -23,50 +24,28 @@ export class VerificationEmailService {
     private readonly config: ConfigService,
     private readonly mail: MailService,
     private readonly auth: AuthService,
+    private readonly jetons: JetonsUsageUniqueService,
   ) {}
-
-  /** Meme regle que les jetons de rafraichissement : la base ne voit qu'une empreinte. */
-  private empreinte(valeur: string): string {
-    return createHash('sha256').update(valeur).digest('hex');
-  }
 
   private get dureeHeures(): number {
     return Number(this.config.get<string>('VERIFICATION_EXPIRE_HEURES') ?? 48);
   }
 
   /**
-   * Emet un lien et l'envoie.
-   *
-   * Les liens precedents du meme compte sont consommes au passage : demander un
-   * renvoi doit invalider ce qui a ete envoye avant, sinon un lien intercepte
-   * reste utilisable indefiniment tant que la personne n'a pas clique sur le
-   * dernier.
+   * Emet un lien de confirmation et l'envoie.
    *
    * Retourne le lien, dont seuls les tests se servent — le reste du code n'a
    * aucune raison de le connaitre.
    */
   async emettre(destinataire: Destinataire): Promise<string> {
-    const valeur = randomBytes(32).toString('base64url');
-    const expireLe = new Date(Date.now() + this.dureeHeures * 3600 * 1000);
-    const maintenant = new Date();
+    const valeur = await this.jetons.emettre(
+      destinataire.id,
+      destinataire.email,
+      'VERIFICATION_EMAIL',
+      this.dureeHeures,
+    );
 
-    await this.prisma.$transaction([
-      this.prisma.jetonVerificationEmail.updateMany({
-        where: { utilisateurId: destinataire.id, consommeLe: null },
-        data: { consommeLe: maintenant },
-      }),
-      this.prisma.jetonVerificationEmail.create({
-        data: {
-          utilisateurId: destinataire.id,
-          email: destinataire.email,
-          empreinte: this.empreinte(valeur),
-          expireLe,
-        },
-      }),
-    ]);
-
-    const base = this.config.get<string>('APP_URL') ?? 'http://localhost:3000';
-    const lien = `${base.replace(/\/+$/, '')}/verification?jeton=${encodeURIComponent(valeur)}`;
+    const lien = lienCourriel(this.config, 'verification', valeur);
 
     await this.mail.envoyer(
       courrielVerification(destinataire.email, destinataire.prenom, lien, this.dureeHeures),
@@ -84,56 +63,32 @@ export class VerificationEmailService {
    * trois cas, la marche a suivre est de demander un nouveau lien.
    */
   async confirmer(valeur: string): Promise<ReponseConnexion> {
-    const jeton = await this.prisma.jetonVerificationEmail.findUnique({
-      where: { empreinte: this.empreinte(valeur) },
-      include: {
-        utilisateur: {
-          select: {
-            id: true,
-            email: true,
-            role: true,
-            actif: true,
-            agenceId: true,
-            clientId: true,
-            candidatId: true,
-            emailVerifieLe: true,
-          },
-        },
-      },
+    const resolu = await this.jetons.consommer(valeur, 'VERIFICATION_EMAIL');
+
+    if (!resolu) {
+      throw new BadRequestException(
+        'Ce lien de verification est invalide ou expire. Demandez-en un nouveau.',
+      );
+    }
+
+    // `updateMany` conditionne sur `emailVerifieLe: null` : un second lien
+    // valide ne doit pas reecrire la date de la premiere confirmation.
+    await this.prisma.utilisateur.updateMany({
+      where: { id: resolu.utilisateurId, emailVerifieLe: null },
+      data: { emailVerifieLe: new Date(), derniereCnx: new Date() },
     });
 
-    const refus = new BadRequestException(
-      'Ce lien de verification est invalide ou expire. Demandez-en un nouveau.',
-    );
-
-    if (!jeton || jeton.consommeLe || jeton.expireLe < new Date()) {
-      throw refus;
-    }
-
-    // L'adresse a change entre l'emission et le clic : le lien confirmerait
-    // alors une adresse que personne n'a prouvee.
-    if (jeton.email !== jeton.utilisateur.email) {
-      throw refus;
-    }
-
-    if (!jeton.utilisateur.actif) {
-      throw refus;
-    }
-
-    const utilisateur = jeton.utilisateur;
-
-    await this.prisma.$transaction([
-      this.prisma.jetonVerificationEmail.update({
-        where: { id: jeton.id },
-        data: { consommeLe: new Date() },
-      }),
-      // `emailVerifieLe` n'est pose qu'ici, et une seule fois : un second lien
-      // valide ne doit pas reecrire la date de la premiere confirmation.
-      this.prisma.utilisateur.updateMany({
-        where: { id: utilisateur.id, emailVerifieLe: null },
-        data: { emailVerifieLe: new Date(), derniereCnx: new Date() },
-      }),
-    ]);
+    const utilisateur = await this.prisma.utilisateur.findUniqueOrThrow({
+      where: { id: resolu.utilisateurId },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        agenceId: true,
+        clientId: true,
+        candidatId: true,
+      },
+    });
 
     this.logger.log(`Adresse confirmee : ${utilisateur.email}`);
 

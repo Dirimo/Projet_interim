@@ -89,3 +89,123 @@ export function courrielVerification(
 
   return { destinataire, sujet: `Releve — ${titre}`, texte, html };
 }
+
+/**
+ * Avertissement apres un changement de mot de passe.
+ *
+ * C'est le seul message de la plateforme qui ne sert a rien quand tout va
+ * bien. Sa valeur est entiere dans le cas contraire : quelqu'un qui prend un
+ * compte commence par en changer le mot de passe, et sans cet avertissement le
+ * proprietaire ne l'apprend qu'en se retrouvant dehors, sans savoir pourquoi ni
+ * quand. Il est donc envoye meme — surtout — quand le changement est legitime.
+ *
+ * Il ne contient jamais le mot de passe, ni ancien ni nouveau : un courriel
+ * traverse des serveurs qu'on ne maitrise pas et reste dans une boite pour
+ * toujours.
+ */
+export function courrielMotDePasseChange(
+  destinataire: string,
+  prenom: string | null,
+  origine: 'compte' | 'agence',
+): Courriel {
+  const bonjour = prenom ? `Bonjour ${prenom},` : 'Bonjour,';
+  const titre =
+    origine === 'agence'
+      ? 'Votre mot de passe a ete reinitialise'
+      : 'Votre mot de passe a ete modifie';
+
+  const fait =
+    origine === 'agence'
+      ? 'Votre agence vient de reinitialiser le mot de passe de votre compte Releve. Le nouveau mot de passe vous est communique par elle, jamais par courriel.'
+      : 'Le mot de passe de votre compte Releve vient d etre modifie.';
+
+  const alerte =
+    origine === 'agence'
+      ? "Si vous n'avez rien demande, contactez votre agence : elle seule a pu faire cette operation."
+      : "Si vous n'etes pas a l'origine de ce changement, contactez immediatement votre agence : votre compte est probablement compromis.";
+
+  const texte = [
+    bonjour,
+    '',
+    fait,
+    'Toutes vos sessions ont ete fermees : il faut vous reconnecter sur chacun de vos appareils.',
+    '',
+    alerte,
+    '',
+    PIED,
+  ].join('\n');
+
+  const html = enveloppe(
+    titre,
+    `<p style="margin:0 0 16px;line-height:1.6">${echapper(bonjour)}</p>
+     <p style="margin:0 0 16px;line-height:1.6">${echapper(fait)}</p>
+     <p style="margin:0 0 24px;line-height:1.6">
+       Toutes vos sessions ont ete fermees : il faut vous reconnecter sur chacun de vos appareils.
+     </p>
+     <p style="margin:0;padding:12px 14px;line-height:1.6;font-size:13px;background:#fef2f2;border-radius:8px">
+       ${echapper(alerte)}
+     </p>`,
+  );
+
+  return { destinataire, sujet: `Releve — ${titre}`, texte, html };
+}
+
+/**
+ * Lien de reinitialisation du mot de passe.
+ *
+ * Le message est ecrit pour quelqu'un qui n'a peut-etre rien demande : c'est un
+ * formulaire public, donc n'importe qui peut saisir l'adresse d'un tiers. D'ou
+ * le rappel explicite qu'ignorer le courriel suffit — sans clic, rien ne change,
+ * et l'ancien mot de passe continue de fonctionner.
+ */
+export function courrielReinitialisation(
+  destinataire: string,
+  prenom: string | null,
+  lien: string,
+  heures: number,
+): Courriel {
+  const bonjour = prenom ? `Bonjour ${prenom},` : 'Bonjour,';
+  const titre = 'Reinitialiser votre mot de passe';
+  const validite =
+    heures <= 1 ? 'Ce lien est valable une heure' : `Ce lien est valable ${heures} heures`;
+
+  const texte = [
+    bonjour,
+    '',
+    'Une reinitialisation du mot de passe a ete demandee pour votre compte Releve.',
+    'Pour en choisir un nouveau, ouvrez ce lien :',
+    '',
+    lien,
+    '',
+    `${validite} et ne fonctionne qu'une fois.`,
+    "Si vous n'avez rien demande, ignorez ce message : sans ce clic, rien ne change et votre mot de passe actuel reste valable.",
+    '',
+    PIED,
+  ].join('\n');
+
+  const html = enveloppe(
+    titre,
+    `<p style="margin:0 0 16px;line-height:1.6">${echapper(bonjour)}</p>
+     <p style="margin:0 0 24px;line-height:1.6">
+       Une reinitialisation du mot de passe a ete demandee pour votre compte Releve.
+       Pour en choisir un nouveau&nbsp;:
+     </p>
+     <p style="margin:0 0 24px">
+       <a href="${echapper(lien)}"
+          style="display:inline-block;background:#0f766e;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600">
+         Choisir un nouveau mot de passe
+       </a>
+     </p>
+     <p style="margin:0 0 8px;font-size:13px;color:#57534e;line-height:1.6">
+       Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur&nbsp;:<br>
+       <span style="word-break:break-all;color:#0f766e">${echapper(lien)}</span>
+     </p>
+     <p style="margin:24px 0 0;font-size:13px;color:#57534e;line-height:1.6">
+       ${echapper(validite)} et ne fonctionne qu'une fois.
+       Si vous n'avez rien demande, ignorez ce message : sans ce clic, rien ne change
+       et votre mot de passe actuel reste valable.
+     </p>`,
+  );
+
+  return { destinataire, sujet: `Releve — ${titre}`, texte, html };
+}

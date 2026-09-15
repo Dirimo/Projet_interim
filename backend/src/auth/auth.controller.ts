@@ -3,17 +3,19 @@ import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   connexionSchema,
-  inscriptionEntrepriseSchema,
   inscriptionInterimaireSchema,
   motDePasseChangeSchema,
+  motDePasseOublieSchema,
+  motDePasseReinitialisationSchema,
   rafraichissementSchema,
   verificationConfirmeSchema,
   verificationRenvoiSchema,
   type Connexion,
   type EspacePersonnel,
-  type InscriptionEntreprise,
   type InscriptionInterimaire,
   type MotDePasseChange,
+  type MotDePasseOublie,
+  type MotDePasseReinitialisation,
   type Rafraichissement,
   type ReponseConnexion,
   type ReponseInscription,
@@ -25,6 +27,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { AuthService } from './auth.service';
 import { InscriptionsService } from './inscriptions.service';
 import { VerificationEmailService } from './verification-email.service';
+import { ReinitialisationService } from './reinitialisation.service';
 import { Public, UtilisateurCourant } from './auth.decorateurs';
 
 @ApiTags('auth')
@@ -34,6 +37,7 @@ export class AuthController {
     private readonly auth: AuthService,
     private readonly inscriptions: InscriptionsService,
     private readonly verification: VerificationEmailService,
+    private readonly reinitialisation: ReinitialisationService,
   ) {}
 
   // Plafond serre : une personne qui se connecte le fait une ou deux fois, pas
@@ -51,28 +55,22 @@ export class AuthController {
   }
 
   /*
-   * Les deux parcours d'inscription.
+   * Le seul parcours d'inscription public.
+   *
+   * Les ESMS n'y figurent pas : l'agence les cree depuis le back-office, apres
+   * avoir vu leur declaration SAP, leur agrement ou leur arrete d'autorisation.
+   * Un statut reglementaire auto-declare que personne ne controle ne vaudrait
+   * rien, et c'est lui qui autorise une structure a recevoir des intervenants.
    *
    * Plafond bien plus serre que la connexion : on s'inscrit une fois. Un debit
-   * eleve sur ces routes n'est pas un utilisateur maladroit, c'est quelqu'un qui
-   * remplit la base de fiches bidon.
+   * eleve sur cette route n'est pas un utilisateur maladroit, c'est quelqu'un
+   * qui remplit la base de fiches bidon.
    *
    * Aucune session n'est ouverte ici, et rien n'est renvoye qu'une confirmation
    * d'envoi. L'acces passe par le lien recu a l'adresse saisie : c'est ce qui
    * empeche d'ouvrir un compte au nom de quelqu'un d'autre, sur une plateforme
    * ou l'adresse sert a la fois d'identifiant et de canal de contact.
    */
-  @Public()
-  @Throttle({ connexion: { limit: 5, ttl: 60_000 } })
-  @Post('inscription/entreprise')
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Inscrire une entreprise utilisatrice et ouvrir sa session' })
-  inscrireEntreprise(
-    @Body(new ZodValidationPipe(inscriptionEntrepriseSchema)) donnees: InscriptionEntreprise,
-  ): Promise<ReponseInscription> {
-    return this.inscriptions.entreprise(donnees);
-  }
-
   @Public()
   @Throttle({ connexion: { limit: 5, ttl: 60_000 } })
   @Post('inscription/interimaire')
@@ -114,6 +112,43 @@ export class AuthController {
     @Body(new ZodValidationPipe(verificationRenvoiSchema)) donnees: VerificationRenvoi,
   ): Promise<void> {
     return this.verification.renvoyer(donnees.email);
+  }
+
+  /**
+   * Demande d'un lien de reinitialisation.
+   *
+   * 204 systematiquement, adresse connue ou non : repondre differemment ferait
+   * de ce formulaire public un annuaire des inscrits — et ici, etre inscrit
+   * revele qu'on cherche des missions d'aide a domicile. Plafond tres serre
+   * pour la meme raison : trois essais par minute ne genent personne de bonne
+   * foi, et rendent le balayage d'adresses impraticable.
+   */
+  @Public()
+  @Throttle({ connexion: { limit: 3, ttl: 60_000 } })
+  @Post('mot-de-passe/oublie')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Demander un lien de reinitialisation du mot de passe' })
+  async motDePasseOublie(
+    @Body(new ZodValidationPipe(motDePasseOublieSchema)) donnees: MotDePasseOublie,
+  ): Promise<void> {
+    await this.reinitialisation.demander(donnees.email);
+  }
+
+  /**
+   * Pose du nouveau mot de passe. Aucune session n'est ouverte : la personne
+   * vient de choisir un mot de passe, la faire le saisir a l'ecran suivant
+   * verifie qu'il est bien celui qu'elle croit.
+   */
+  @Public()
+  @Throttle({ connexion: { limit: 10, ttl: 60_000 } })
+  @Post('mot-de-passe/reinitialiser')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Poser un nouveau mot de passe depuis le lien recu' })
+  reinitialiserMotDePasse(
+    @Body(new ZodValidationPipe(motDePasseReinitialisationSchema))
+    donnees: MotDePasseReinitialisation,
+  ): Promise<void> {
+    return this.reinitialisation.reinitialiser(donnees.jeton, donnees.nouveau);
   }
 
   @Public()

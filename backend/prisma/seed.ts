@@ -1,5 +1,5 @@
 import { hash } from '@node-rs/argon2';
-import { PrismaClient, type Filiere, type RoleUtilisateur } from '@prisma/client';
+import { PrismaClient, type RoleUtilisateur } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -10,41 +10,35 @@ const MOT_DE_PASSE_DEMO = 'Releve2026!';
 // Le code ROME rattache chaque diplome au marche observe sur France Travail :
 // J1501 pour les soins, K1302 pour l'assistance aux adultes, K1304 pour les
 // services domestiques. Ce sont les trois codes que la collecte importe.
-const QUALIFICATIONS: { code: string; libelle: string; filieres: Filiere[]; romeCode: string }[] = [
+const QUALIFICATIONS: { code: string; libelle: string; romeCode: string }[] = [
   {
     code: 'DEAES',
     libelle: "Diplome d'Etat d'accompagnant educatif et social",
-    filieres: ['DOMICILE', 'ETABLISSEMENT'],
     romeCode: 'K1302',
   },
   {
     code: 'DEAS',
     libelle: "Diplome d'Etat d'aide-soignant",
-    filieres: ['ETABLISSEMENT'],
     romeCode: 'J1501',
   },
   {
     code: 'ADVF',
     libelle: 'Titre pro assistant de vie aux familles',
-    filieres: ['DOMICILE'],
     romeCode: 'K1304',
   },
   {
     code: 'AVS',
     libelle: 'Auxiliaire de vie sociale',
-    filieres: ['DOMICILE'],
     romeCode: 'K1304',
   },
   {
     code: 'ASH',
     libelle: 'Agent des services hospitaliers',
-    filieres: ['ETABLISSEMENT'],
     romeCode: 'K1302',
   },
   {
     code: 'AMP',
     libelle: 'Aide medico-psychologique',
-    filieres: ['ETABLISSEMENT'],
     romeCode: 'K1302',
   },
 ];
@@ -65,7 +59,6 @@ async function main(): Promise<void> {
       where: { code: qualification.code },
       update: {
         libelle: qualification.libelle,
-        filieres: qualification.filieres,
         romeCode: qualification.romeCode,
       },
       create: qualification,
@@ -78,12 +71,26 @@ async function main(): Promise<void> {
     where: { siret: '48291736500017' },
     // Un `update` vide ne converge jamais : une fiche de demonstration renommee
     // garderait son ancien nom a chaque reseed.
-    update: { raisonSociale: 'Les Tilleuls (SAAD)', type: 'SAAD' },
+    update: {
+      raisonSociale: 'Les Tilleuls (SAAD)',
+      type: 'SAAD',
+      statutReglementaire: 'AUTORISE_SAD_ESMS',
+      numeroFiness: '440001234',
+      arreteReference: 'ARR-2024-0117',
+      arreteDate: new Date('2024-03-18'),
+    },
     create: {
       agenceId: agence.id,
       raisonSociale: 'Les Tilleuls (SAAD)',
       siret: '48291736500017',
       type: 'SAAD',
+      // Structure autorisee par le conseil departemental : elle releve alors de
+      // l'article L. 312-1 du CASF, ce qui declenche la duree minimale
+      // d'exercice prealable a l'interim pour ses mises a disposition.
+      statutReglementaire: 'AUTORISE_SAD_ESMS',
+      numeroFiness: '440001234',
+      arreteReference: 'ARR-2024-0117',
+      arreteDate: new Date('2024-03-18'),
       conventionCollective: 'Branche aide a domicile (BAD) - a confirmer avec la paie',
       contactNom: 'Responsable de secteur',
       contactEmail: 'secteur@les-tilleuls.example',
@@ -93,11 +100,16 @@ async function main(): Promise<void> {
           {
             type: 'DOMICILE_BENEFICIAIRE',
             libelle: 'Domicile - secteur Hauts-Paves',
-            adresse: '12 rue des Tilleuls',
+            // Adresses reelles, et coordonnees qui leur correspondent vraiment.
+            // Le seed les pose en dur pour rester deterministe et jouable sans
+            // reseau — mais elles doivent rester geocodables, sinon
+            // `pnpm cli geocoder` echouerait sur le jeu de demonstration et on
+            // croirait a une panne du service.
+            adresse: '12 rue de Strasbourg',
             codePostal: '44000',
             ville: 'Nantes',
-            latitude: 47.2184,
-            longitude: -1.5536,
+            latitude: 47.215936,
+            longitude: -1.551073,
             etage: '2e etage, aile est',
             consignes: 'Cle dans la boite a cle, code communique la veille.',
           },
@@ -109,12 +121,21 @@ async function main(): Promise<void> {
   // Un second SAAD : le client signe, l'intervention a lieu chez le beneficiaire.
   const saad = await prisma.client.upsert({
     where: { siret: '51938274600021' },
-    update: { raisonSociale: 'Domicile Plus (SAAD)', type: 'SAAD' },
+    update: {
+      raisonSociale: 'Domicile Plus (SAAD)',
+      type: 'SAAD',
+      statutReglementaire: 'DECLARE_SAP',
+      numeroSap: 'SAP519382746',
+    },
     create: {
       agenceId: agence.id,
       raisonSociale: 'Domicile Plus (SAAD)',
       siret: '51938274600021',
       type: 'SAAD',
+      // Simple declaration : l'autre regime, pour que la demonstration montre
+      // les deux justificatifs plutot que deux fois le meme.
+      statutReglementaire: 'DECLARE_SAP',
+      numeroSap: 'SAP519382746',
       conventionCollective: 'Branche aide a domicile (BAD) - a confirmer avec la paie',
       contactNom: 'Responsable de secteur',
       contactEmail: 'secteur@domicile-plus.example',
@@ -153,7 +174,6 @@ async function main(): Promise<void> {
     nom: string;
     prenom: string;
     telephone: string;
-    filieres: Filiere[];
     ville: string;
     codePostal: string;
     adresse: string;
@@ -163,13 +183,26 @@ async function main(): Promise<void> {
     permisB: boolean;
     vehicule: boolean;
     qualifications: string[];
+    /**
+     * Parcours professionnel. Les durees sont volontairement contrastees :
+     * sans cela, le classement rendrait quatre scores identiques et ne
+     * montrerait pas ce que le bareme sait faire.
+     */
+    experiences: {
+      employeur: string;
+      intitule: string;
+      qualification: string | null;
+      debutLe: string;
+      finLe: string | null;
+      quotitePourcent: number;
+      verifiee: boolean;
+    }[];
   }[] = [
     {
       email: 'nadia.benali@example.org',
       nom: 'Benali',
       prenom: 'Nadia',
       telephone: '0612345601',
-      filieres: ['DOMICILE'],
       adresse: '9 rue de la Paix',
       codePostal: '44300',
       ville: 'Nantes',
@@ -179,13 +212,25 @@ async function main(): Promise<void> {
       permisB: true,
       vehicule: true,
       qualifications: ['ADVF', 'AVS'],
+      // Le profil le plus solide du jeu : huit ans de terrain, au-dela du
+      // plafond de cinq ans, donc au maximum de la composante.
+      experiences: [
+        {
+          employeur: 'ADMR Loire-Atlantique',
+          intitule: 'Auxiliaire de vie',
+          qualification: 'ADVF',
+          debutLe: '2018-01-08',
+          finLe: null,
+          quotitePourcent: 100,
+          verifiee: true,
+        },
+      ],
     },
     {
       email: 'marc.leroy@example.org',
       nom: 'Leroy',
       prenom: 'Marc',
       telephone: '0612345602',
-      filieres: ['ETABLISSEMENT'],
       adresse: '3 boulevard Gabriel Lauriol',
       codePostal: '44000',
       ville: 'Nantes',
@@ -195,6 +240,20 @@ async function main(): Promise<void> {
       permisB: false,
       vehicule: false,
       qualifications: ['DEAS'],
+      // Un poste declare mais pas encore controle par l'agence : il s'affiche
+      // sur la fiche et ne rapporte rien. C'est le cas qui rend l'invariant
+      // visible dans la demo.
+      experiences: [
+        {
+          employeur: 'EHPAD Bel Air',
+          intitule: 'Aide-soignant',
+          qualification: 'DEAS',
+          debutLe: '2022-09-01',
+          finLe: null,
+          quotitePourcent: 100,
+          verifiee: false,
+        },
+      ],
     },
     {
       // Le cas qui justifie de ne pas dupliquer la fiche.
@@ -202,7 +261,6 @@ async function main(): Promise<void> {
       nom: 'Marchand',
       prenom: 'Sophie',
       telephone: '0612345603',
-      filieres: ['DOMICILE', 'ETABLISSEMENT'],
       adresse: '17 rue de Reze',
       codePostal: '44400',
       ville: 'Reze',
@@ -212,13 +270,34 @@ async function main(): Promise<void> {
       permisB: true,
       vehicule: true,
       qualifications: ['DEAES'],
+      // Une reconversion : trois ans de caisse, puis deux ans dans le metier.
+      // Le hors-referentiel compte pour moitie.
+      experiences: [
+        {
+          employeur: 'Supermarche Coeur de Reze',
+          intitule: 'Hotesse de caisse',
+          qualification: null,
+          debutLe: '2019-02-01',
+          finLe: '2022-01-31',
+          quotitePourcent: 100,
+          verifiee: true,
+        },
+        {
+          employeur: 'SAAD Les Glycines',
+          intitule: 'Accompagnante educative et sociale',
+          qualification: 'DEAES',
+          debutLe: '2022-03-01',
+          finLe: null,
+          quotitePourcent: 60,
+          verifiee: true,
+        },
+      ],
     },
     {
       email: 'karim.ferreira@example.org',
       nom: 'Ferreira',
       prenom: 'Karim',
       telephone: '0612345604',
-      filieres: ['ETABLISSEMENT'],
       adresse: '44 route de Vannes',
       codePostal: '44800',
       ville: 'Saint-Herblain',
@@ -228,11 +307,14 @@ async function main(): Promise<void> {
       permisB: true,
       vehicule: false,
       qualifications: ['ASH'],
+      // Aucune experience : le profil eligible qui marque zero sur la
+      // composante la plus lourde. C'est l'etat de depart de toute inscription.
+      experiences: [],
     },
   ];
 
   for (const donnees of candidats) {
-    const { qualifications, ...candidat } = donnees;
+    const { qualifications, experiences, ...candidat } = donnees;
 
     const enregistre = await prisma.candidat.upsert({
       where: { email: candidat.email },
@@ -250,6 +332,30 @@ async function main(): Promise<void> {
         },
       },
     });
+
+    // Les experiences sont reecrites a chaque seed : elles n'ont pas de cle
+    // naturelle sur laquelle poser un upsert, et les laisser s'accumuler
+    // fausserait le classement au deuxieme passage.
+    await prisma.experienceProfessionnelle.deleteMany({ where: { candidatId: enregistre.id } });
+
+    for (const poste of experiences) {
+      const rattachement = poste.qualification
+        ? await prisma.qualification.findUniqueOrThrow({ where: { code: poste.qualification } })
+        : null;
+
+      await prisma.experienceProfessionnelle.create({
+        data: {
+          candidatId: enregistre.id,
+          employeur: poste.employeur,
+          intitule: poste.intitule,
+          qualificationId: rattachement?.id ?? null,
+          debutLe: new Date(`${poste.debutLe}T00:00:00.000Z`),
+          finLe: poste.finLe ? new Date(`${poste.finLe}T00:00:00.000Z`) : null,
+          quotitePourcent: poste.quotitePourcent,
+          ...(poste.verifiee ? { verifieeLe: new Date(), verifieePar: 'seed' } : {}),
+        },
+      });
+    }
 
     for (const code of qualifications) {
       const referentiel = await prisma.qualification.findUniqueOrThrow({ where: { code } });
@@ -331,7 +437,6 @@ async function main(): Promise<void> {
       agenceId: agence.id,
       clientId: saadTilleuls.id,
       lieuId: lieuTilleuls.id,
-      filiere: 'DOMICILE',
       qualificationRequiseId: deaes.id,
       statut: 'PUBLIEE',
       dateDebut: new Date('2026-09-15'),
@@ -353,7 +458,6 @@ async function main(): Promise<void> {
       agenceId: agence.id,
       clientId: saad.id,
       lieuId: lieuDomicile.id,
-      filiere: 'DOMICILE',
       qualificationRequiseId: advf.id,
       statut: 'PUBLIEE',
       dateDebut: new Date('2026-09-14'),
@@ -367,11 +471,24 @@ async function main(): Promise<void> {
     },
   });
 
+  // Le seed pose latitude / longitude en dur, pour rester deterministe et
+  // jouable sans reseau. La colonne PostGIS, elle, n'est ecrite qu'en SQL brut :
+  // sans cette mise en accord, l'index spatial designerait le vide alors que le
+  // bareme, lui, trouverait des coordonnees.
+  for (const table of ['candidat', 'lieu_intervention']) {
+    await prisma.$executeRawUnsafe(`
+      UPDATE "${table}"
+         SET geom = ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography
+       WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+    `);
+  }
+
   const compteurs = {
     qualifications: await prisma.qualification.count(),
     clients: await prisma.client.count(),
     lieux: await prisma.lieuIntervention.count(),
     candidats: await prisma.candidat.count(),
+    experiences: await prisma.experienceProfessionnelle.count(),
     utilisateurs: await prisma.utilisateur.count(),
     missions: await prisma.mission.count(),
   };

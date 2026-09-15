@@ -66,7 +66,6 @@ describe('cloisonnement multi-agence', () => {
           prenom: 'Cloison',
           email: 'cloison@test.example',
           telephone: '0612340099',
-          filieres: ['DOMICILE'],
           adresse: '9 rue X',
           codePostal: '35000',
           ville: 'Rennes',
@@ -111,7 +110,12 @@ describe('cloisonnement multi-agence', () => {
       // celui d'un autre client.
       const autre = await avec(app, a)
         .post('/api/clients')
-        .send({ raisonSociale: 'Autre A', siret: '35600000000048' })
+        .send({
+          raisonSociale: 'Autre A',
+          siret: '35600000000048',
+          statutReglementaire: 'DECLARE_SAP',
+          numeroSap: 'SAP356000000',
+        })
         .expect(201);
 
       await avec(app, a)
