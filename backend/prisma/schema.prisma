@@ -117,6 +117,12 @@ model Utilisateur {
   role         RoleUtilisateur
   actif        Boolean         @default(true)
   derniereCnx  DateTime?
+
+  /// Date de confirmation de l'adresse, par clic sur le lien recu. Tant qu'elle
+  /// est nulle, la connexion est refusee : l'adresse n'a pas ete prouvee, et
+  /// c'est elle qui sert d'identifiant. Nullable plutot que booleen, parce que
+  /// « quand » se demande toujours apres « si » — support, litige, RGPD.
+  emailVerifieLe DateTime?
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 
@@ -135,7 +141,8 @@ model Utilisateur {
   clientId   String?   @db.Uuid
   client     Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
 
-  jetons JetonRafraichissement[]
+  jetons        JetonRafraichissement[]
+  verifications JetonVerificationEmail[]
 
   @@index([agenceId, role])
   @@map("utilisateur")
@@ -168,6 +175,31 @@ model JetonRafraichissement {
   @@index([utilisateurId, revoqueLe])
   @@index([familleId])
   @@map("jeton_rafraichissement")
+}
+
+/**
+ * Lien de verification d'adresse, a usage unique.
+ *
+ * Meme traitement que le jeton de rafraichissement, et pour la meme raison : on
+ * stocke l'empreinte SHA-256, jamais la valeur. Une fuite de la table ne donne
+ * alors aucun lien utilisable, alors que ce lien ouvre une session.
+ */
+model JetonVerificationEmail {
+  id            String      @id @default(uuid()) @db.Uuid
+  utilisateurId String      @db.Uuid
+  utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+
+  empreinte String    @unique
+  expireLe  DateTime
+  consommeLe DateTime?
+  createdAt DateTime  @default(now())
+
+  /// Adresse visee au moment de l'emission. Un lien emis pour une adresse ne
+  /// doit pas confirmer celle qui l'a remplacee entre-temps.
+  email String
+
+  @@index([utilisateurId, consommeLe])
+  @@map("jeton_verification_email")
 }
 
 // ---------------------------------------------------------------- offre : candidats

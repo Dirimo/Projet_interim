@@ -97,9 +97,7 @@ export function tauxCourt(taux: number | null): string {
 }
 
 export function remuneration(taux: number | null): string {
-  return taux === null
-    ? "Taux a confirmer avec l'agence"
-    : `${montant(taux)} € brut / heure`;
+  return taux === null ? "Taux a confirmer avec l'agence" : `${montant(taux)} € brut / heure`;
 }
 
 /** Deux lettres pour une pastille : « Les Jardins d'Aurore » donne « LJ ». */

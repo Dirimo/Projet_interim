@@ -124,10 +124,7 @@ function creneauActif(creneau: CreneauCandidat, jour: Date): boolean {
  * disponible de 7 h à 12 h sur une vacation de 7 h à 14 h couvre les cinq
  * septièmes du besoin, et cette information vaut mieux qu'un refus sec.
  */
-export function couvertureDisponibilite(
-  profil: ProfilAEvaluer,
-  besoin: BesoinAPourvoir,
-): number {
+export function couvertureDisponibilite(profil: ProfilAEvaluer, besoin: BesoinAPourvoir): number {
   const jours = joursDeLaMission(besoin);
 
   if (jours.length === 0) {
@@ -210,10 +207,7 @@ function periodesSeChevauchent(aDebut: Date, aFin: Date, bDebut: Date, bFin: Dat
  * son motif : l'agence sait quoi corriger, et le candidat, côté public, sait ce
  * qui lui manque.
  */
-export function motifsExclusion(
-  profil: ProfilAEvaluer,
-  besoin: BesoinAPourvoir,
-): MotifExclusion[] {
+export function motifsExclusion(profil: ProfilAEvaluer, besoin: BesoinAPourvoir): MotifExclusion[] {
   const motifs: MotifExclusion[] = [];
 
   if (profil.statut !== 'ACTIF') {
@@ -247,12 +241,7 @@ export function motifsExclusion(
     motifs.push({ cle: 'deja-engage', libelle: 'Deja retenu sur une mission de la periode' });
   }
 
-  const distance = distanceKm(
-    profil.latitude,
-    profil.longitude,
-    besoin.latitude,
-    besoin.longitude,
-  );
+  const distance = distanceKm(profil.latitude, profil.longitude, besoin.latitude, besoin.longitude);
 
   if (distance === null) {
     // Sans coordonnees, on ne peut ni mesurer ni affirmer : on ecarte en le
@@ -303,12 +292,7 @@ export function calculerScore(profil: ProfilAEvaluer, besoin: BesoinAPourvoir): 
 
   // --- Zone : décroissance linéaire jusqu'au rayon déclaré.
   const maxZone = POIDS_COMPOSANTES.zone;
-  const distance = distanceKm(
-    profil.latitude,
-    profil.longitude,
-    besoin.latitude,
-    besoin.longitude,
-  );
+  const distance = distanceKm(profil.latitude, profil.longitude, besoin.latitude, besoin.longitude);
 
   const pointsZone =
     distance === null

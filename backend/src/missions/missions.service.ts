@@ -166,7 +166,12 @@ export class MissionsService {
       candidaturesEnAttente: mission._count.propositions,
       candidatRetenuId: mission.candidatRetenuId,
       distanceKm: depuis
-        ? distanceKm(depuis.latitude, depuis.longitude, mission.lieu.latitude, mission.lieu.longitude)
+        ? distanceKm(
+            depuis.latitude,
+            depuis.longitude,
+            mission.lieu.latitude,
+            mission.lieu.longitude,
+          )
         : null,
     };
   }

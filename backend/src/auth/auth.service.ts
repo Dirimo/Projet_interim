@@ -1,6 +1,7 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { setTimeout as attendre } from 'node:timers/promises';
+import { CODE_EMAIL_NON_VERIFIE } from '@releve/shared';
 import type {
   Connexion,
   MotDePasseChange,
@@ -104,6 +105,29 @@ export class AuthService {
       });
 
       throw new UnauthorizedException('Identifiants invalides');
+    }
+
+    // Adresse non confirmee : refus, mais seulement ici.
+    //
+    // L'ordre compte. Ce refus est place *apres* la verification du mot de
+    // passe, jamais avant : annonce plus tot, il apprendrait a n'importe qui
+    // qu'un compte existe pour une adresse donnee, et ruinerait le soin pris
+    // juste au-dessus a rendre les echecs indiscernables. A ce point-ci, celui
+    // qui interroge a deja prouve qu'il connait le mot de passe — lui dire
+    // pourquoi il n'entre pas ne lui apprend rien qu'il ignorait.
+    //
+    // 403 et non 401 : les identifiants sont bons, c'est l'etat du compte qui
+    // bloque. Le code accompagne le message pour que le front propose le renvoi
+    // du lien au lieu d'envoyer chercher une faute de frappe inexistante.
+    if (!utilisateur.emailVerifieLe) {
+      this.logger.warn(`Connexion refusee pour ${utilisateur.email} (adresse non confirmee)`);
+
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: CODE_EMAIL_NON_VERIFIE,
+        message:
+          "Votre adresse e-mail n'a pas encore ete confirmee. Ouvrez le lien recu par courriel.",
+      });
     }
 
     await this.prisma.utilisateur.update({

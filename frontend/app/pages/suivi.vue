@@ -59,72 +59,70 @@ const itineraire = computed(
   <section class="suivi">
     <div v-if="!mission" class="aucune">
       <h1>Aucune mission confirmee</h1>
-      <p>
-        Vos candidatures en cours apparaitront ici des qu un etablissement en aura retenu une.
-      </p>
+      <p>Vos candidatures en cours apparaitront ici des qu un etablissement en aura retenu une.</p>
       <AppBouton to="/missions">Voir les missions disponibles</AppBouton>
     </div>
 
     <template v-else>
-    <header class="tete">
-      <p class="statut">Mission confirmee</p>
-      <h1>Tout est pret</h1>
-    </header>
+      <header class="tete">
+        <p class="statut">Mission confirmee</p>
+        <h1>Tout est pret</h1>
+      </header>
 
-    <AppCarte class="mission">
-      <div class="etablissement">
-        <AppAvatar :initiales="mission.etablissement.initiales" />
-        <div class="copie">
-          <p class="nom">{{ mission.etablissement.nom }}</p>
-          <p class="lieu">{{ mission.etablissement.localisation }}</p>
-        </div>
-        <AppBadge teinte="vert">Confirmee</AppBadge>
-      </div>
-
-      <div class="creneau">
-        <div class="bloc">
-          <p class="libelle">{{ mission.jour }}</p>
-          <p class="valeur">{{ mission.horaires }}</p>
-        </div>
-        <div class="bloc compte-a-rebours">
-          <p class="libelle">Debut dans</p>
-          <p class="valeur urgent">{{ mission.debutDans }}</p>
-        </div>
-      </div>
-
-      <a class="itineraire" :href="itineraire" target="_blank" rel="noopener noreferrer">
-        <AppIcon nom="navigation" :taille="18" />
-        <span>Voir l'itineraire</span>
-      </a>
-    </AppCarte>
-
-    <div class="colonnes">
-      <section>
-        <h2>Votre contact sur place</h2>
-        <AppCarte class="contact">
-          <AppAvatar :initiales="mission.contact.initiales" teinte="lavande" />
+      <AppCarte class="mission">
+        <div class="etablissement">
+          <AppAvatar :initiales="mission.etablissement.initiales" />
           <div class="copie">
-            <p class="nom-contact">{{ mission.contact.nom }}</p>
-            <p class="lieu">{{ mission.contact.fonction }}</p>
+            <p class="nom">{{ mission.etablissement.nom }}</p>
+            <p class="lieu">{{ mission.etablissement.localisation }}</p>
           </div>
-          <!-- La messagerie n'existe pas encore : le bouton du design est
-               conserve mais inactif, plutot que de pointer dans le vide. -->
-          <button type="button" class="message" disabled aria-label="Messagerie a venir">
-            <AppIcon nom="message-circle" :taille="18" />
-          </button>
-        </AppCarte>
-      </section>
+          <AppBadge teinte="vert">Confirmee</AppBadge>
+        </div>
 
-      <section>
-        <h2>Avant la mission</h2>
-        <ul class="checklist">
-          <li v-for="etape in mission.checklist" :key="etape">
-            <AppIcon nom="check-circle" :taille="18" />
-            <span>{{ etape }}</span>
-          </li>
-        </ul>
-      </section>
-    </div>
+        <div class="creneau">
+          <div class="bloc">
+            <p class="libelle">{{ mission.jour }}</p>
+            <p class="valeur">{{ mission.horaires }}</p>
+          </div>
+          <div class="bloc compte-a-rebours">
+            <p class="libelle">Debut dans</p>
+            <p class="valeur urgent">{{ mission.debutDans }}</p>
+          </div>
+        </div>
+
+        <a class="itineraire" :href="itineraire" target="_blank" rel="noopener noreferrer">
+          <AppIcon nom="navigation" :taille="18" />
+          <span>Voir l'itineraire</span>
+        </a>
+      </AppCarte>
+
+      <div class="colonnes">
+        <section>
+          <h2>Votre contact sur place</h2>
+          <AppCarte class="contact">
+            <AppAvatar :initiales="mission.contact.initiales" teinte="lavande" />
+            <div class="copie">
+              <p class="nom-contact">{{ mission.contact.nom }}</p>
+              <p class="lieu">{{ mission.contact.fonction }}</p>
+            </div>
+            <!-- La messagerie n'existe pas encore : le bouton du design est
+               conserve mais inactif, plutot que de pointer dans le vide. -->
+            <button type="button" class="message" disabled aria-label="Messagerie a venir">
+              <AppIcon nom="message-circle" :taille="18" />
+            </button>
+          </AppCarte>
+        </section>
+
+        <section>
+          <h2>Avant la mission</h2>
+          <ul class="checklist">
+            <li v-for="etape in mission.checklist" :key="etape">
+              <AppIcon nom="check-circle" :taille="18" />
+              <span>{{ etape }}</span>
+            </li>
+          </ul>
+        </section>
+      </div>
     </template>
   </section>
 </template>

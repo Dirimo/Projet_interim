@@ -14,11 +14,7 @@ import { MOTIF_CODE_POSTAL, MOTIF_TELEPHONE } from './motifs';
 export const monProfilUpdateSchema = z.object({
   nom: z.string().trim().min(1, 'Le nom est obligatoire').max(80).optional(),
   prenom: z.string().trim().min(1, 'Le prenom est obligatoire').max(80).optional(),
-  telephone: z
-    .string()
-    .trim()
-    .regex(MOTIF_TELEPHONE, 'Numero de telephone invalide')
-    .optional(),
+  telephone: z.string().trim().regex(MOTIF_TELEPHONE, 'Numero de telephone invalide').optional(),
 
   filieres: z.array(filiereSchema).min(1, 'Au moins une filiere est requise').optional(),
 

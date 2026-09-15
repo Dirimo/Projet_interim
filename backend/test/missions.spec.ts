@@ -2,8 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { avec, connecter, type Session } from './aide';
-import { creerApp, MOT_DE_PASSE, prisma, reinitialiser, type Jeu } from './fixtures';
-import { hacherMotDePasse } from '../src/auth/mots-de-passe';
+import { creerApp, creerCompteDeTest, prisma, reinitialiser, type Jeu } from './fixtures';
 
 /**
  * Le parcours complet, de la publication a la mission confirmee.
@@ -60,27 +59,10 @@ describe('missions et candidatures', () => {
   beforeEach(async () => {
     jeu = await reinitialiser();
 
-    const empreinte = await hacherMotDePasse(MOT_DE_PASSE);
-
     // Deux comptes clients : un dans chaque agence, pour verifier le
     // cloisonnement dans les deux sens.
-    await prisma.utilisateur.create({
-      data: {
-        email: 'client.a@test.example',
-        motDePasse: empreinte,
-        role: 'CLIENT',
-        clientId: jeu.clientA,
-      },
-    });
-
-    await prisma.utilisateur.create({
-      data: {
-        email: 'client.b@test.example',
-        motDePasse: empreinte,
-        role: 'CLIENT',
-        clientId: jeu.clientB,
-      },
-    });
+    await creerCompteDeTest('client.a@test.example', 'CLIENT', { clientId: jeu.clientA });
+    await creerCompteDeTest('client.b@test.example', 'CLIENT', { clientId: jeu.clientB });
 
     agence = await connecter(app, 'charge.a@test.example');
     client = await connecter(app, 'client.a@test.example');
@@ -405,7 +387,10 @@ describe('missions et candidatures', () => {
     it('libere les candidatures en attente', async () => {
       await diplomer();
       const missionId = await publier();
-      await avec(app, candidat).post(`/api/missions/${missionId}/candidatures`).send({}).expect(201);
+      await avec(app, candidat)
+        .post(`/api/missions/${missionId}/candidatures`)
+        .send({})
+        .expect(201);
 
       await avec(app, client).post(`/api/missions/${missionId}/annuler`).expect(201);
 
@@ -433,7 +418,10 @@ describe('missions et candidatures', () => {
       await diplomer();
       const missionId = await publier();
       await publier();
-      await avec(app, candidat).post(`/api/missions/${missionId}/candidatures`).send({}).expect(201);
+      await avec(app, candidat)
+        .post(`/api/missions/${missionId}/candidatures`)
+        .send({})
+        .expect(201);
 
       const reponse = await avec(app, client).get('/api/missions/resume').expect(200);
 

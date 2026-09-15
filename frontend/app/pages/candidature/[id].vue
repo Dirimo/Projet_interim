@@ -15,9 +15,7 @@ if (!donnees.value) {
 }
 
 const mission = computed(() =>
-  donnees.value
-    ? { etablissement: { nom: donnees.value.client.raisonSociale } }
-    : undefined,
+  donnees.value ? { etablissement: { nom: donnees.value.client.raisonSociale } } : undefined,
 );
 
 useHead({ title: 'Candidature envoyee - Relève' });

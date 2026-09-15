@@ -15,7 +15,10 @@ const barometreQuerySchema = z.object({
 });
 
 const suggestionQuerySchema = barometreQuerySchema.extend({
-  rome: z.string().trim().regex(/^[A-Z]\d{4}$/, 'Code ROME invalide'),
+  rome: z
+    .string()
+    .trim()
+    .regex(/^[A-Z]\d{4}$/, 'Code ROME invalide'),
   jours: z.coerce.number().int().min(1).max(365).default(90),
 });
 

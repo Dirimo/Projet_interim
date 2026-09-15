@@ -51,7 +51,7 @@ export class FranceTravailClient {
   estConfigure(): boolean {
     return Boolean(
       this.config.get<string>('FRANCE_TRAVAIL_CLIENT_ID') &&
-        this.config.get<string>('FRANCE_TRAVAIL_CLIENT_SECRET'),
+      this.config.get<string>('FRANCE_TRAVAIL_CLIENT_SECRET'),
     );
   }
 
@@ -152,9 +152,7 @@ export class FranceTravailClient {
       if (!reponse.ok && reponse.status !== 206) {
         const detail = await reponse.text();
         this.logger.error(`Recherche refusee (${reponse.status}) : ${detail.slice(0, 200)}`);
-        throw new ServiceUnavailableException(
-          `L'API France Travail a repondu ${reponse.status}`,
-        );
+        throw new ServiceUnavailableException(`L'API France Travail a repondu ${reponse.status}`);
       }
 
       const corps = (await reponse.json()) as { resultats?: OffreBrute[] };

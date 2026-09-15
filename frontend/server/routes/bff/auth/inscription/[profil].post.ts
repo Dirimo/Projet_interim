@@ -1,13 +1,16 @@
-import type { ReponseConnexion, UtilisateurSession } from '@releve/shared';
+import type { ReponseInscription } from '@releve/shared';
 
 const PARCOURS = new Set(['entreprise', 'interimaire']);
 
 /**
- * Inscription des deux profils, par le meme relais que la connexion : elle
- * ouvre une session, donc elle pose les memes cookies `httpOnly`. La page ne
- * voit jamais de jeton, ici comme ailleurs.
+ * Inscription des deux profils.
+ *
+ * Contrairement a la connexion, ce relais ne pose aucun cookie : une
+ * inscription n'ouvre plus de session. C'est le lien recu par courriel qui le
+ * fait, via `/bff/auth/verification/confirmer`. La reponse ne porte donc rien
+ * d'autre que l'adresse a afficher sur l'ecran d'attente.
  */
-export default defineEventHandler(async (event): Promise<UtilisateurSession | unknown> => {
+export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig();
   const profil = getRouterParam(event, 'profil') ?? '';
 
@@ -20,15 +23,14 @@ export default defineEventHandler(async (event): Promise<UtilisateurSession | un
   const donnees = await readBody<Record<string, unknown>>(event);
 
   try {
-    const reponse = await $fetch<ReponseConnexion>(
+    const reponse = await $fetch<ReponseInscription>(
       `${config.apiBase}/auth/inscription/${profil}`,
       { method: 'POST', body: donnees },
     );
 
-    poserCookies(event, reponse);
     setResponseStatus(event, 201);
 
-    return reponse.utilisateur;
+    return reponse;
   } catch (cause) {
     return relayerErreur(event, cause);
   }

@@ -6,6 +6,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { InscriptionsService } from './inscriptions.service';
+import { VerificationEmailService } from './verification-email.service';
 import { SessionsService } from './sessions.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
@@ -53,6 +54,7 @@ type DureeJeton = NonNullable<NonNullable<JwtModuleOptions['signOptions']>['expi
   providers: [
     AuthService,
     InscriptionsService,
+    VerificationEmailService,
     SessionsService,
     // L'ordre compte : on limite le debit, puis on identifie, puis on verifie le role.
     { provide: APP_GUARD, useClass: ThrottlerGuard },

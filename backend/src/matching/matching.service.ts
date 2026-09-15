@@ -113,12 +113,9 @@ export class MatchingService {
   private profil(fiche: FicheChargee, qualificationRequiseId: string): ProfilAEvaluer {
     const maintenant = new Date();
 
-    const lien = fiche.qualifications.find(
-      (q) => q.qualification.id === qualificationRequiseId,
-    );
+    const lien = fiche.qualifications.find((q) => q.qualification.id === qualificationRequiseId);
 
-    const valide =
-      !!lien?.verifieeLe && (!lien.expireLe || lien.expireLe > maintenant);
+    const valide = !!lien?.verifieeLe && (!lien.expireLe || lien.expireLe > maintenant);
 
     return {
       statut: fiche.statut,

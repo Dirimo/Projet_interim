@@ -65,16 +65,22 @@ Prérequis : **Node ≥ 22**, **pnpm 12**, **Docker**.
 pnpm install                 # installe le workspace
 cp .env.example backend/.env
 
-pnpm infra:up                # PostgreSQL (5434) + Redis (6380)
+pnpm infra:up                # PostgreSQL (5434), Redis (6380), Mailpit (8025)
 pnpm db:migrate              # applique la migration
 pnpm db:seed                 # jeu de données de démonstration
 
 pnpm dev                     # API sur :3001, front sur :3000
 ```
 
+Les courriels de confirmation partent sur **Mailpit** : rien à configurer, ils s'ouvrent dans le
+navigateur sur **http://localhost:8025**. Aucun message ne sort de la machine, ce qui permet de
+dérouler une inscription complète sans écrire à une vraie adresse.
+
+````
+
 ```bash
 pnpm test                    # 83 tests : contrats + intégration API
-```
+````
 
 La base d'intégration (`passerelle_test`) est créée et migrée automatiquement au
 premier lancement, puis vidée à chaque suite. Elle est distincte de la base de
@@ -236,11 +242,12 @@ backend/                          API NestJS
     offres-echantillon.json       102 offres réelles, rejouables sans réseau
   prisma/
     schema.prisma                 modèle complet du produit + 3 invariants métier
-    migrations/                   socle, session révocable, offres, clients SAAD
+    migrations/                   socle, session révocable, offres, SAAD, vérification e-mail
     seed.ts                       agence, qualifications, SAAD, candidats, comptes
   src/
     auth/                         authentification, rôles, sessions, mots de passe
       auth.decorateurs.ts         @Public, @Roles, @UtilisateurCourant, @AgenceCourante
+      verification-email.service.ts  émission, confirmation et renvoi du lien
       jwt-auth.guard.ts           garde globale : fermé par défaut
       roles.guard.ts              contrôle de rôle
       sessions.service.ts         jetons de rafraîchissement, rotation, révocation
@@ -248,6 +255,8 @@ backend/                          API NestJS
       mots-de-passe.ts            Argon2id
     candidats/                    vivier : fiche, qualifications, disponibilités
     clients/                      clients SAAD et lieux d'intervention
+    mail/                         sortie courriel, un seul point de sortie
+      gabarits.ts                 les messages en clair, texte et HTML
     matching/                     porte d'éligibilité et score explicable
       score.ts                    le barème, sans Prisma ni Nest : testable seul
     missions/                     dépôt de besoin, visibilité par profil, annulation
@@ -274,6 +283,7 @@ backend/                          API NestJS
     score.spec.ts                 le barème seul, sans base ni réseau
     matching.spec.ts              classement, écartés motivés, score figé
     mon-profil.spec.ts            ce que le candidat ne peut pas s'accorder
+    verification-email.spec.ts    le lien : usage unique, péremption, non-énumération
     disponibilites.spec.ts        chevauchements, travail de nuit
     donnees-publiques.spec.ts     import, médianes, exposition API
     normalisation.spec.ts         salaires et empreintes, sans base ni réseau
@@ -285,7 +295,7 @@ frontend/                         Front Nuxt
   server/                         Nitro : le navigateur ne voit jamais l'API
     middleware/session.ts         rafraîchit la session avant tout traitement
     routes/bff/[...chemin].ts     relais authentifié vers l'API
-    routes/bff/auth/              connexion, déconnexion, inscription
+    routes/bff/auth/              connexion, déconnexion, inscription, vérification
     utils/session.ts              cookies httpOnly, rafraîchissement mutualisé
   app/
     assets/
@@ -293,6 +303,7 @@ frontend/                         Front Nuxt
       icons/*.svg                 exports Figma, recolorés par currentColor
     components/                   AppBouton, AppCarte, AppBadge, AppAvatar, AppBarreApp
       AppIcon.vue                 inline les tracés pour qu'ils suivent la couleur
+      AppAttenteVerification.vue  « consultez votre boîte mail », partagé par les deux parcours
     utils/mise-en-forme.ts        dates, durées et montants : une seule définition
     layouts/
       default.vue                 coque agence : en-tête, menu selon le rôle
@@ -306,6 +317,7 @@ frontend/                         Front Nuxt
       bienvenue.vue               splash des maquettes, enchaîne vers /connexion
       connexion.vue
       inscription/                choix du parcours, entreprise, intérimaire
+      verification.vue            cible du lien reçu : confirme, puis redirige selon le rôle
       index.vue                   vivier candidats
       candidats/[id].vue          fiche candidat complète
       clients/index.vue           liste des clients
@@ -329,6 +341,7 @@ shared/                           @releve/shared — contrat API ↔ front
     client.ts, lieu.ts, qualification.ts
     mission.ts, proposition.ts    dépôt de besoin, candidature, décision
     matching.ts, profil.ts        score décomposé, espace personnel
+    verification.ts               confirmation d'adresse et destination par rôle
     tension.ts                    baromètre et suggestion de taux
     pagination.ts
   test/                           23 tests unitaires des règles partagées
@@ -374,7 +387,25 @@ dont la mission n'a pas besoin** :
 
 **Fermé par défaut.** `JwtAuthGuard` est enregistrée en garde globale : toute route exige un jeton
 valide tant qu'elle n'est pas explicitement marquée `@Public()`. Une route ajoutée sans y penser est
-donc protégée, pas ouverte. Seules `POST /api/auth/connexion` et `GET /api/sante` sont publiques.
+donc protégée, pas ouverte. Les seules routes publiques sont la connexion, les deux inscriptions,
+la confirmation d'adresse, le rafraîchissement, la déconnexion et `GET /api/sante`.
+
+**L'adresse e-mail est prouvée avant tout accès.** Une inscription n'ouvre aucune session : elle
+envoie un lien, et c'est lui — à usage unique, valable 48 heures, stocké en base sous forme
+d'empreinte SHA-256 comme les jetons de session — qui crée l'accès. Sans cela, l'adresse saisie
+n'était qu'une chaîne de caractères : rien n'obligeait à la posséder, et on pouvait ouvrir un
+compte au nom de quelqu'un d'autre sur une plateforme où cette adresse est à la fois l'identifiant
+de connexion et le canal par lequel une mission se décroche.
+
+Le refus de connexion pour adresse non confirmée est renvoyé **après** la vérification du mot de
+passe, jamais avant : annoncé plus tôt, il apprendrait à n'importe qui qu'un compte existe pour une
+adresse donnée, et ruinerait le soin pris ailleurs à rendre les échecs indiscernables. Pour la même
+raison, le renvoi du lien répond toujours 204 — adresse inconnue, déjà confirmée ou réellement
+réexpédiée se ressemblent vues du dehors.
+
+Les comptes créés par l'agence, par le seed ou par les fixtures naissent confirmés : la
+vérification atteste que _celui qui s'inscrit_ possède l'adresse qu'il déclare, question qui ne se
+pose pas quand un administrateur identifié ouvre le compte.
 
 **Cloisonnement multi-agence.** Le décorateur `@AgenceCourante()` extrait l'agence du jeton ; les
 services la reçoivent en paramètre obligatoire. Un enregistrement d'une autre agence répond **404 et
@@ -446,17 +477,19 @@ Base : `http://localhost:3001/api`. Toutes les routes sauf mention contraire exi
 
 ### Authentification
 
-| Méthode | Route                           | Accès                                    |
-| ------- | ------------------------------- | ---------------------------------------- |
-| `POST`  | `/auth/connexion`               | public                                   |
-| `POST`  | `/auth/inscription/entreprise`  | public — crée le compte et le client     |
-| `POST`  | `/auth/inscription/interimaire` | public — crée le compte et le candidat   |
-| `POST`  | `/auth/rafraichir`              | public — porteur du jeton de session     |
-| `POST`  | `/auth/deconnexion`             | public — porteur du jeton de session     |
-| `GET`   | `/auth/moi`                     | authentifié                              |
-| `GET`   | `/auth/mon-espace`              | authentifié — vue selon le profil        |
-| `POST`  | `/auth/mot-de-passe`            | authentifié — changement par l'intéressé |
-| `GET`   | `/sante`                        | public                                   |
+| Méthode | Route                           | Accès                                          |
+| ------- | ------------------------------- | ---------------------------------------------- |
+| `POST`  | `/auth/connexion`               | public                                         |
+| `POST`  | `/auth/inscription/entreprise`  | public — crée le compte et le client           |
+| `POST`  | `/auth/inscription/interimaire` | public — crée le compte et le candidat         |
+| `POST`  | `/auth/verification/confirmer`  | public — le lien du courriel, ouvre la session |
+| `POST`  | `/auth/verification/renvoyer`   | public — toujours 204                          |
+| `POST`  | `/auth/rafraichir`              | public — porteur du jeton de session           |
+| `POST`  | `/auth/deconnexion`             | public — porteur du jeton de session           |
+| `GET`   | `/auth/moi`                     | authentifié                                    |
+| `GET`   | `/auth/mon-espace`              | authentifié — vue selon le profil              |
+| `POST`  | `/auth/mot-de-passe`            | authentifié — changement par l'intéressé       |
+| `GET`   | `/sante`                        | public                                         |
 
 ### Candidats
 
@@ -572,12 +605,12 @@ m'est proposée — en listant les manques dans l'ordre où ils bloquent.
 | `pnpm dev`                               | Contracts compilés, puis API et front en parallèle  |
 | `pnpm dev:backend` / `pnpm dev:frontend` | Un seul des deux                                    |
 | `pnpm build`                             | Contracts, puis API, puis front                     |
-| `pnpm test`                              | Contrats puis intégration API (220 tests)           |
+| `pnpm test`                              | Contrats (23) puis intégration API (214 tests)      |
 | `pnpm test:shared`                       | Règles partagées seules, sans base                  |
 | `pnpm test:backend`                      | Intégration API seule                               |
 | `pnpm typecheck`                         | TypeScript sur les trois paquets, tests compris     |
 | `pnpm lint` / `pnpm format`              | ESLint / Prettier                                   |
-| `pnpm infra:up` / `pnpm infra:down`      | Conteneurs PostgreSQL et Redis                      |
+| `pnpm infra:up` / `pnpm infra:down`      | Conteneurs PostgreSQL, Redis et Mailpit             |
 | `pnpm db:migrate`                        | `prisma migrate dev`                                |
 | `pnpm db:seed`                           | Jeu de données de démonstration                     |
 | `pnpm db:studio`                         | Prisma Studio                                       |
@@ -605,8 +638,15 @@ main, et une fiche sans coordonnées est **écartée** du matching — jamais pl
 ce qui la ferait remonter en tête du classement. Brancher un géocodeur sur l'adresse est le
 prochain gain évident.
 
-**Aucune notification.** Un candidat retenu ne l'apprend qu'en ouvrant son suivi, un établissement
-qu'en ouvrant son accueil. C'est ce que les automatisations n8n du jalon suivant doivent couvrir.
+**Aucune notification métier.** Le seul courriel envoyé est celui de confirmation d'adresse : un
+candidat retenu ne l'apprend qu'en ouvrant son suivi, un établissement qu'en ouvrant son accueil.
+La sortie courriel existe maintenant (`backend/src/mail/`), il reste à y brancher les événements —
+c'est ce que les automatisations n8n du jalon suivant doivent couvrir.
+
+**Pas de mot de passe oublié.** `POST /auth/mot-de-passe` exige d'être déjà connecté. Quelqu'un qui
+oublie le sien dépend d'un administrateur qui le réinitialise à la main. Le canal courriel et les
+jetons à usage unique étant désormais en place, la réinitialisation réutilisera les deux — c'est le
+prochain manque à combler, et il est bloquant en production.
 
 **`connexionSchema` accepte 8 caractères** là où la création en exige 12, pour ne pas bloquer un
 compte historique.

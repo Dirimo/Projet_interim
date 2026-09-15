@@ -42,7 +42,9 @@ function profil(surcharge: Partial<ProfilAEvaluer> = {}): ProfilAEvaluer {
     longitude: -1.5536,
     diplomeObtenuLe: new Date('2016-06-30'),
     diplomeValide: true,
-    creneaux: [{ jourSemaine: 1, heureDebut: '07:00', heureFin: '14:00', valideDu: null, valideAu: null }],
+    creneaux: [
+      { jourSemaine: 1, heureDebut: '07:00', heureFin: '14:00', valideDu: null, valideAu: null },
+    ],
     absences: [],
     engagements: [],
     ...surcharge,
@@ -220,11 +222,7 @@ describe('score', () => {
   it('decompose toujours le total en trois lignes explicables', () => {
     const score = calculerScore(profil(), besoin());
 
-    expect(score.composantes.map((c) => c.cle)).toEqual([
-      'competences',
-      'zone',
-      'disponibilite',
-    ]);
+    expect(score.composantes.map((c) => c.cle)).toEqual(['competences', 'zone', 'disponibilite']);
     expect(score.composantes.reduce((somme, c) => somme + c.points, 0)).toBe(score.total);
 
     for (const composante of score.composantes) {
@@ -235,10 +233,7 @@ describe('score', () => {
 
   it('fait decroitre la note de zone avec la distance', () => {
     const proche = calculerScore(profil(), besoin());
-    const lointain = calculerScore(
-      profil({ latitude: 47.1836, longitude: -1.5494 }),
-      besoin(),
-    );
+    const lointain = calculerScore(profil({ latitude: 47.1836, longitude: -1.5494 }), besoin());
 
     const noteProche = proche.composantes.find((c) => c.cle === 'zone')?.points ?? 0;
     const noteLointaine = lointain.composantes.find((c) => c.cle === 'zone')?.points ?? 0;

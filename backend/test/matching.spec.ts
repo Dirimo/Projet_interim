@@ -1,8 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { avec, connecter, type Session } from './aide';
-import { creerApp, MOT_DE_PASSE, prisma, reinitialiser, type Jeu } from './fixtures';
-import { hacherMotDePasse } from '../src/auth/mots-de-passe';
+import { creerApp, creerCompteDeTest, prisma, reinitialiser, type Jeu } from './fixtures';
 
 /**
  * Le classement, branche sur la base.
@@ -47,16 +46,7 @@ describe('classement des candidats', () => {
   beforeEach(async () => {
     jeu = await reinitialiser();
 
-    const empreinte = await hacherMotDePasse(MOT_DE_PASSE);
-
-    await prisma.utilisateur.create({
-      data: {
-        email: 'client.a@test.example',
-        motDePasse: empreinte,
-        role: 'CLIENT',
-        clientId: jeu.clientA,
-      },
-    });
+    await creerCompteDeTest('client.a@test.example', 'CLIENT', { clientId: jeu.clientA });
 
     // Le lieu et la candidate sont places au meme endroit : la distance ne
     // brouille pas les assertions sur les autres composantes.

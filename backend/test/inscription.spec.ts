@@ -1,7 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { avec, connecter, type Session } from './aide';
+import { avec, confirmerAdresse, connecter, type Session } from './aide';
 import { creerApp, prisma, reinitialiser, type Jeu } from './fixtures';
 
 const MOT_DE_PASSE_INSCRIPTION = 'MotDePasseInscrit2026';
@@ -42,9 +42,10 @@ function interimaire(surcharge: Record<string, unknown> = {}) {
 /**
  * Les deux parcours d'inscription publics.
  *
- * Ce qui est verifie ici n'est pas "le formulaire marche" mais l'invariant du
- * lot : une inscription ouvre un acces, elle n'accorde aucun droit sur le
- * metier de l'agence, et elle ne rend personne operationnel sans validation.
+ * Ce qui est verifie ici n'est pas "le formulaire marche" mais les invariants
+ * du lot : une inscription n'ouvre aucun acces tant que l'adresse n'est pas
+ * confirmee, elle n'accorde aucun droit sur le metier de l'agence, et elle ne
+ * rend personne operationnel sans validation.
  */
 describe('inscription des deux profils', () => {
   let app: INestApplication;
@@ -63,23 +64,27 @@ describe('inscription des deux profils', () => {
   describe('entreprise', () => {
     let session: Session;
 
-    it('cree une fiche client inactive et ouvre la session', async () => {
+    it('cree une fiche client inactive, sans ouvrir de session', async () => {
       const reponse = await request(app.getHttpServer())
         .post('/api/auth/inscription/entreprise')
         .send(entreprise())
         .expect(201);
 
-      expect(reponse.body.utilisateur.role).toBe('CLIENT');
-      expect(reponse.body.utilisateur.clientId).not.toBeNull();
-      expect(reponse.body.utilisateur.agenceId).toBeNull();
-      expect(reponse.body.jeton).toBeTruthy();
-
-      const client = await prisma.client.findUniqueOrThrow({
-        where: { id: reponse.body.utilisateur.clientId },
+      expect(reponse.body).toEqual({
+        email: 'direction@glycines.example',
+        verificationRequise: true,
       });
 
-      // Le coeur du parcours : inscrit, donc connecte ; pas encore valide,
-      // donc pas encore operationnel.
+      // L'invariant du lot : aucune session ne sort d'une inscription. Le
+      // formulaire seul ne prouve pas qu'on possede l'adresse declaree.
+      expect(reponse.body.jeton).toBeUndefined();
+      expect(reponse.body.jetonRafraichissement).toBeUndefined();
+
+      const client = await prisma.client.findUniqueOrThrow({
+        where: { siret: '55208131766522' },
+      });
+
+      // Pas encore valide, donc pas encore operationnel.
       expect(client.actif).toBe(false);
       expect(client.agenceId).toBe(jeu.agenceA);
 
@@ -87,11 +92,28 @@ describe('inscription des deux profils', () => {
       // de reference, une entreprise ne se la donne pas a elle-meme.
       expect(client.conventionCollective).toBeNull();
       expect(client.idcc).toBeNull();
+    });
 
-      session = {
-        jeton: reponse.body.jeton,
-        rafraichissement: reponse.body.jetonRafraichissement,
-      };
+    it('refuse la connexion tant que l adresse n est pas confirmee', async () => {
+      const reponse = await request(app.getHttpServer())
+        .post('/api/auth/connexion')
+        .send({
+          email: 'direction@glycines.example',
+          motDePasse: MOT_DE_PASSE_INSCRIPTION,
+        })
+        .expect(403);
+
+      expect(reponse.body.code).toBe('EMAIL_NON_VERIFIE');
+    });
+
+    it('ouvre la session au clic sur le lien recu', async () => {
+      session = await confirmerAdresse(app, 'direction@glycines.example');
+
+      const moi = await avec(app, session).get('/api/auth/moi').expect(200);
+
+      expect(moi.body.role).toBe('CLIENT');
+      expect(moi.body.clientId).not.toBeNull();
+      expect(moi.body.agenceId).toBeNull();
     });
 
     it('reprend l e-mail du compte comme contact', async () => {
@@ -102,7 +124,7 @@ describe('inscription des deux profils', () => {
       expect(client.contactEmail).toBe('direction@glycines.example');
     });
 
-    it('laisse le compte se reconnecter', async () => {
+    it('laisse le compte se reconnecter une fois l adresse confirmee', async () => {
       await connecter(app, 'direction@glycines.example', MOT_DE_PASSE_INSCRIPTION);
     });
 
@@ -165,30 +187,36 @@ describe('inscription des deux profils', () => {
   describe('interimaire', () => {
     let session: Session;
 
-    it('cree une fiche en verification et ouvre la session', async () => {
+    it('cree une fiche en verification, sans ouvrir de session', async () => {
       const reponse = await request(app.getHttpServer())
         .post('/api/auth/inscription/interimaire')
         .send(interimaire())
         .expect(201);
 
-      expect(reponse.body.utilisateur.role).toBe('CANDIDAT');
-      expect(reponse.body.utilisateur.candidatId).not.toBeNull();
-      expect(reponse.body.utilisateur.agenceId).toBeNull();
+      expect(reponse.body).toEqual({
+        email: 'julie.moreau@test.example',
+        verificationRequise: true,
+      });
 
       const candidat = await prisma.candidat.findUniqueOrThrow({
-        where: { id: reponse.body.utilisateur.candidatId },
+        where: { email: 'julie.moreau@test.example' },
       });
 
       // Se declarer aide-soignant ne suffit pas a partir en mission : l'agence
-      // voit les diplomes avant que la fiche devienne proposable.
+      // voit les diplomes avant que la fiche devienne proposable. C'est un
+      // verrou distinct de la confirmation d'adresse, et les deux tiennent.
       expect(candidat.statut).toBe('EN_VERIFICATION');
-      expect(candidat.email).toBe('julie.moreau@test.example');
       expect(candidat.filieres).toEqual(['DOMICILE', 'ETABLISSEMENT']);
+    });
 
-      session = {
-        jeton: reponse.body.jeton,
-        rafraichissement: reponse.body.jetonRafraichissement,
-      };
+    it('ouvre la session au clic sur le lien recu', async () => {
+      session = await confirmerAdresse(app, 'julie.moreau@test.example');
+
+      const moi = await avec(app, session).get('/api/auth/moi').expect(200);
+
+      expect(moi.body.role).toBe('CANDIDAT');
+      expect(moi.body.candidatId).not.toBeNull();
+      expect(moi.body.agenceId).toBeNull();
     });
 
     it('montre sa fiche et son etat de validation dans son espace', async () => {

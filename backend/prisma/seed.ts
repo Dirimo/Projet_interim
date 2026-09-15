@@ -297,10 +297,19 @@ async function main(): Promise<void> {
   for (const compte of comptes) {
     // On reecrit le mot de passe a chaque seed : en dev, relancer `db:seed` est
     // la facon la plus simple de recuperer un acces.
+    // `emailVerifieLe` est pose d'office : ces comptes viennent du seed, pas du
+    // site public. La confirmation d'adresse atteste que celui qui s'inscrit
+    // possede l'adresse qu'il declare — un compte de demonstration n'a personne
+    // a qui le prouver, et sans cette ligne la demo serait inconnectable.
     await prisma.utilisateur.upsert({
       where: { email: compte.email },
-      update: { motDePasse: empreinte, role: compte.role, actif: true },
-      create: { ...compte, motDePasse: empreinte },
+      update: {
+        motDePasse: empreinte,
+        role: compte.role,
+        actif: true,
+        emailVerifieLe: new Date(),
+      },
+      create: { ...compte, motDePasse: empreinte, emailVerifieLe: new Date() },
     });
   }
 

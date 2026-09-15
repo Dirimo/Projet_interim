@@ -19,6 +19,13 @@ const erreurs = ref<Record<string, string>>({});
 const erreurGenerale = ref('');
 const envoi = ref(false);
 
+/**
+ * Adresse a laquelle le lien vient de partir. Non vide = l'inscription a
+ * abouti, et le formulaire cede la place a l'ecran d'attente : le laisser
+ * affiche inviterait a re-soumettre, ce qui ne rendrait qu'un 409.
+ */
+const enAttente = ref('');
+
 function corps() {
   return {
     entreprise: {
@@ -54,8 +61,9 @@ async function soumettre(): Promise<void> {
   envoi.value = true;
 
   try {
-    await inscrire('entreprise', corps());
-    await navigateTo('/mon-espace');
+    const reponse = await inscrire('entreprise', corps());
+
+    enAttente.value = reponse.email;
   } catch (cause) {
     const erreur = cause as { statusCode?: number; data?: { message?: string } };
     erreurGenerale.value =
@@ -73,11 +81,13 @@ async function soumettre(): Promise<void> {
     <p class="fil"><NuxtLink to="/inscription">Inscription</NuxtLink> / Entreprise</p>
     <h1>Inscrire mon service</h1>
     <p class="intro">
-      Votre compte est cree immediatement. L'agence valide ensuite le service avant votre premier
-      depot de besoin.
+      Vous recevrez un lien de confirmation par courriel. L'agence valide ensuite le service avant
+      votre premier depot de besoin.
     </p>
 
-    <form novalidate @submit.prevent="soumettre">
+    <AppAttenteVerification v-if="enAttente" :email="enAttente" />
+
+    <form v-else novalidate @submit.prevent="soumettre">
       <fieldset>
         <legend>Le service</legend>
 
@@ -164,7 +174,7 @@ async function soumettre(): Promise<void> {
       </button>
     </form>
 
-    <p class="note">
+    <p v-if="!enAttente" class="note">
       La convention collective applicable est renseignee par l'agence : c'est elle qui fixe le
       salaire de reference des interimaires mis a disposition.
     </p>

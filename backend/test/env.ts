@@ -47,3 +47,13 @@ export const URL_TEST =
   (process.env.DATABASE_URL ?? '').replace(/\/([^/?]+)(\?|$)/, '/passerelle_test$2');
 
 process.env.DATABASE_URL = URL_TEST;
+
+/**
+ * Aucun SMTP en test, meme si le .env local en declare un.
+ *
+ * Sans cette ligne, une suite lancee sur un poste ou Mailpit tourne enverrait
+ * de vrais messages et laisserait la boite en memoire vide : les tests du
+ * parcours de verification, qui relisent le courriel pour en extraire le lien,
+ * echoueraient alors sur une machine et passeraient sur une autre.
+ */
+process.env.MAIL_HOST = '';

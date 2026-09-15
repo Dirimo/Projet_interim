@@ -5,11 +5,11 @@ import type {
   EspacePersonnel,
   InscriptionEntreprise,
   InscriptionInterimaire,
-  ReponseConnexion,
+  ReponseInscription,
   UtilisateurSession,
 } from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthService } from './auth.service';
+import { VerificationEmailService } from './verification-email.service';
 import { hacherMotDePasse } from './mots-de-passe';
 
 @Injectable()
@@ -18,7 +18,7 @@ export class InscriptionsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly auth: AuthService,
+    private readonly verification: VerificationEmailService,
     private readonly config: ConfigService,
   ) {}
 
@@ -78,15 +78,20 @@ export class InscriptionsService {
    * Inscription d'une entreprise utilisatrice.
    *
    * La fiche client nait inactive : l'agence verifie l'entreprise et renseigne
-   * sa convention collective avant qu'elle puisse deposer un besoin. Le compte,
-   * lui, est actif tout de suite — la personne doit pouvoir se connecter pour
-   * suivre l'avancement de sa demande.
+   * sa convention collective avant qu'elle puisse deposer un besoin.
+   *
+   * Aucune session n'est ouverte ici. L'acces passe par le lien envoye a
+   * l'adresse saisie : c'est le seul moyen de s'assurer que celui qui inscrit
+   * une entreprise possede bien l'adresse de contact qu'il declare. Ce qui
+   * attend la validation de l'agence, c'est la fiche ; ce qui attend le clic,
+   * c'est l'acces.
    */
-  async entreprise(donnees: InscriptionEntreprise): Promise<ReponseConnexion> {
+  async entreprise(donnees: InscriptionEntreprise): Promise<ReponseInscription> {
     await this.exigerEmailLibre(donnees.compte.email);
 
     const agenceId = await this.agenceDInscription();
     const empreinte = await hacherMotDePasse(donnees.compte.motDePasse);
+    let compte: { id: string; email: string };
 
     try {
       const utilisateur = await this.prisma.$transaction(async (tx) => {
@@ -116,24 +121,37 @@ export class InscriptionsService {
 
       this.logger.log(`Inscription entreprise : ${donnees.entreprise.raisonSociale}`);
 
-      return this.auth.ouvrirSession(utilisateur);
+      compte = utilisateur;
     } catch (cause) {
       throw this.traduireConflit(cause, 'siret', 'Une entreprise est deja inscrite avec ce SIRET');
     }
+
+    // Hors du `catch` : une panne d'emission n'est pas un conflit de SIRET, et
+    // la traduire comme tel afficherait un message faux a l'inscrit.
+    await this.verification.emettre({
+      id: compte.id,
+      email: compte.email,
+      prenom: donnees.entreprise.contactNom ?? null,
+    });
+
+    return { email: compte.email, verificationRequise: true };
   }
 
   /**
    * Inscription d'un interimaire.
    *
-   * Le statut `EN_VERIFICATION` est le coeur du parcours : personne n'est
-   * proposable avant que l'agence ait vu les diplomes. Se declarer aide-soignant
-   * ne suffit pas a etre envoye en EHPAD.
+   * Deux verrous distincts, qu'il ne faut pas confondre. Le statut
+   * `EN_VERIFICATION` dit que l'agence n'a pas encore vu les diplomes : se
+   * declarer aide-soignant ne suffit pas a etre envoye chez quelqu'un. La
+   * confirmation d'adresse, elle, ne dit rien des competences — seulement que
+   * la personne qui s'inscrit possede l'adresse qu'elle declare.
    */
-  async interimaire(donnees: InscriptionInterimaire): Promise<ReponseConnexion> {
+  async interimaire(donnees: InscriptionInterimaire): Promise<ReponseInscription> {
     await this.exigerEmailLibre(donnees.compte.email);
 
     const agenceId = await this.agenceDInscription();
     const empreinte = await hacherMotDePasse(donnees.compte.motDePasse);
+    let compte: { id: string; email: string };
 
     try {
       const utilisateur = await this.prisma.$transaction(async (tx) => {
@@ -168,10 +186,18 @@ export class InscriptionsService {
 
       this.logger.log(`Inscription interimaire : ${donnees.compte.email}`);
 
-      return this.auth.ouvrirSession(utilisateur);
+      compte = utilisateur;
     } catch (cause) {
       throw this.traduireConflit(cause, 'email', 'Une fiche existe deja pour cette adresse e-mail');
     }
+
+    await this.verification.emettre({
+      id: compte.id,
+      email: compte.email,
+      prenom: donnees.interimaire.prenom,
+    });
+
+    return { email: compte.email, verificationRequise: true };
   }
 
   /**

@@ -132,6 +132,12 @@ export class UtilisateursService {
         email: donnees.email,
         motDePasse: await hacherMotDePasse(donnees.motDePasse),
         role: donnees.role,
+        // Cree par l'agence, donc reputee confirmee : la verification par lien
+        // repond a « celui qui s'inscrit possede-t-il cette adresse ». Ici,
+        // c'est un administrateur identifie qui ouvre le compte, et lui imposer
+        // un aller-retour par courriel n'ajouterait aucune garantie — juste un
+        // compte inutilisable si le mail se perd.
+        emailVerifieLe: new Date(),
         // Seul le personnel interne porte l'agence ; un compte externe la tient
         // de son client ou de son candidat.
         agenceId: estRoleInterne(donnees.role) ? agenceId : null,

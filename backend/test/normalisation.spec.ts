@@ -154,10 +154,7 @@ describe('nettoyage des offres publiques', () => {
     });
 
     it('distingue deux employeurs sur la meme commune', () => {
-      const lot = nettoyerLot([
-        base,
-        { ...base, id: 'C', entreprise: { nom: 'AUTRE AGENCE' } },
-      ]);
+      const lot = nettoyerLot([base, { ...base, id: 'C', entreprise: { nom: 'AUTRE AGENCE' } }]);
 
       expect(lot.offres).toHaveLength(2);
       expect(lot.doublons).toBe(0);

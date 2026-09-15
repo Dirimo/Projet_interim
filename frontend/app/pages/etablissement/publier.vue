@@ -1,9 +1,5 @@
 <script setup lang="ts">
-import type {
-  MissionResume,
-  OptionsPublication,
-  SuggestionTaux,
-} from '@releve/shared';
+import type { MissionResume, OptionsPublication, SuggestionTaux } from '@releve/shared';
 
 useHead({ title: 'Publier une mission - Relève' });
 
@@ -307,8 +303,9 @@ async function publier(): Promise<void> {
 
         <p v-if="suggestion?.tauxHoraireMedian" class="marche">
           Le marche paie <strong>{{ tauxMarche }} EUR</strong> de l heure en mediane pour ce metier
-          {{ suggestion.perimetre === 'departemental' ? 'dans ce departement' : 'au niveau national' }},
-          sur {{ suggestion.offres }} offres France Travail des 90 derniers jours.
+          {{
+            suggestion.perimetre === 'departemental' ? 'dans ce departement' : 'au niveau national'
+          }}, sur {{ suggestion.offres }} offres France Travail des 90 derniers jours.
         </p>
 
         <div class="actions">

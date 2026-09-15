@@ -7,6 +7,8 @@ import {
   inscriptionInterimaireSchema,
   motDePasseChangeSchema,
   rafraichissementSchema,
+  verificationConfirmeSchema,
+  verificationRenvoiSchema,
   type Connexion,
   type EspacePersonnel,
   type InscriptionEntreprise,
@@ -14,11 +16,15 @@ import {
   type MotDePasseChange,
   type Rafraichissement,
   type ReponseConnexion,
+  type ReponseInscription,
   type UtilisateurSession,
+  type VerificationConfirme,
+  type VerificationRenvoi,
 } from '@releve/shared';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { AuthService } from './auth.service';
 import { InscriptionsService } from './inscriptions.service';
+import { VerificationEmailService } from './verification-email.service';
 import { Public, UtilisateurCourant } from './auth.decorateurs';
 
 @ApiTags('auth')
@@ -27,6 +33,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly inscriptions: InscriptionsService,
+    private readonly verification: VerificationEmailService,
   ) {}
 
   // Plafond serre : une personne qui se connecte le fait une ou deux fois, pas
@@ -50,9 +57,10 @@ export class AuthController {
    * eleve sur ces routes n'est pas un utilisateur maladroit, c'est quelqu'un qui
    * remplit la base de fiches bidon.
    *
-   * La session est ouverte dans la foulee : le compte existe, il est actif, et
-   * la personne doit pouvoir suivre l'avancement de sa demande. Ce qui attend la
-   * validation de l'agence, c'est la fiche — pas l'acces.
+   * Aucune session n'est ouverte ici, et rien n'est renvoye qu'une confirmation
+   * d'envoi. L'acces passe par le lien recu a l'adresse saisie : c'est ce qui
+   * empeche d'ouvrir un compte au nom de quelqu'un d'autre, sur une plateforme
+   * ou l'adresse sert a la fois d'identifiant et de canal de contact.
    */
   @Public()
   @Throttle({ connexion: { limit: 5, ttl: 60_000 } })
@@ -61,7 +69,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Inscrire une entreprise utilisatrice et ouvrir sa session' })
   inscrireEntreprise(
     @Body(new ZodValidationPipe(inscriptionEntrepriseSchema)) donnees: InscriptionEntreprise,
-  ): Promise<ReponseConnexion> {
+  ): Promise<ReponseInscription> {
     return this.inscriptions.entreprise(donnees);
   }
 
@@ -72,8 +80,40 @@ export class AuthController {
   @ApiOperation({ summary: 'Inscrire un interimaire et ouvrir sa session' })
   inscrireInterimaire(
     @Body(new ZodValidationPipe(inscriptionInterimaireSchema)) donnees: InscriptionInterimaire,
-  ): Promise<ReponseConnexion> {
+  ): Promise<ReponseInscription> {
     return this.inscriptions.interimaire(donnees);
+  }
+
+  /**
+   * Confirmation de l'adresse : le seul endroit ou une inscription devient une
+   * session. Plafond large, parce qu'un lien ouvert depuis une messagerie peut
+   * etre prefetche par le client mail avant que la personne ne clique.
+   */
+  @Public()
+  @Throttle({ connexion: { limit: 20, ttl: 60_000 } })
+  @Post('verification/confirmer')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Confirmer une adresse e-mail et ouvrir la session' })
+  confirmerVerification(
+    @Body(new ZodValidationPipe(verificationConfirmeSchema)) donnees: VerificationConfirme,
+  ): Promise<ReponseConnexion> {
+    return this.verification.confirmer(donnees.jeton);
+  }
+
+  /**
+   * Renvoi du lien. 204 systematiquement, y compris pour une adresse inconnue
+   * ou deja confirmee : une reponse qui varierait ferait de ce formulaire
+   * public un testeur d'adresses.
+   */
+  @Public()
+  @Throttle({ connexion: { limit: 3, ttl: 60_000 } })
+  @Post('verification/renvoyer')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Renvoyer le lien de confirmation' })
+  renvoyerVerification(
+    @Body(new ZodValidationPipe(verificationRenvoiSchema)) donnees: VerificationRenvoi,
+  ): Promise<void> {
+    return this.verification.renvoyer(donnees.email);
   }
 
   @Public()

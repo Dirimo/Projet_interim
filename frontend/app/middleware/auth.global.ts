@@ -11,6 +11,9 @@ const PAGES_OUVERTES = new Set([
   '/inscription',
   '/inscription/entreprise',
   '/inscription/interimaire',
+  // Ouverte par necessite : on y arrive depuis un courriel, donc sans session.
+  // C'est meme la page qui en cree une.
+  '/verification',
 ]);
 
 /**

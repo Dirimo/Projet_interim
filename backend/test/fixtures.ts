@@ -30,12 +30,39 @@ export interface Jeu {
   compteCandidatA: string;
 }
 
+/**
+ * Cree un compte connectable pour une suite qui a besoin d'un role absent du
+ * jeu commun — un compte client, typiquement.
+ *
+ * Passe par cette fonction plutot que par `prisma.utilisateur.create` : c'est
+ * ici qu'est pose `emailVerifieLe`, sans lequel la connexion repond 403. Un
+ * compte cree a la main dans une suite retomberait dans ce piege.
+ */
+export async function creerCompteDeTest(
+  email: string,
+  role: 'ADMIN_AGENCE' | 'CHARGE_RECRUTEMENT' | 'CANDIDAT' | 'CLIENT',
+  rattachement: Record<string, string>,
+): Promise<string> {
+  const compte = await prisma.utilisateur.create({
+    data: {
+      email,
+      motDePasse: await hacherMotDePasse(MOT_DE_PASSE),
+      role,
+      emailVerifieLe: new Date(),
+      ...rattachement,
+    },
+  });
+
+  return compte.id;
+}
+
 export async function reinitialiser(): Promise<Jeu> {
   // TRUNCATE plutot qu'une cascade de delete : plus rapide, et remet les
   // sequences a zero, donc deux executions partent du meme etat.
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
-      jeton_rafraichissement, utilisateur, qualification_candidat, disponibilite,
+      jeton_rafraichissement, jeton_verification_email, utilisateur,
+      qualification_candidat, disponibilite,
       indisponibilite, proposition, contrat, releve_heures, evenement_mission,
       mission, facture, lieu_intervention, client, candidat, qualification, agence
     RESTART IDENTITY CASCADE
@@ -116,7 +143,18 @@ export async function reinitialiser(): Promise<Jeu> {
     rattachement: Record<string, string>,
   ): Promise<string> => {
     const compte = await prisma.utilisateur.create({
-      data: { email, motDePasse: empreinte, role, ...rattachement },
+      // Adresse marquee confirmee : ces comptes naissent d'un seed, pas du site
+      // public. La confirmation ne prouve que la possession de l'adresse par
+      // celui qui s'inscrit — elle n'a pas de sens pour un compte cree ici, et
+      // l'exiger rendrait toutes les suites inconnectables. Le parcours reel,
+      // avec son lien, a sa propre suite (verification-email.spec.ts).
+      data: {
+        email,
+        motDePasse: empreinte,
+        role,
+        emailVerifieLe: new Date(),
+        ...rattachement,
+      },
     });
 
     return compte.id;

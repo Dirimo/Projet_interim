@@ -56,10 +56,7 @@ export class OffresService {
    * entre en base est deja normalise et dedoublonne, la table ne contient donc
    * jamais de brut a retraiter plus tard.
    */
-  async importerDepuisApi(
-    criteres: CriteresRecherche,
-    simulation = false,
-  ): Promise<RapportImport> {
+  async importerDepuisApi(criteres: CriteresRecherche, simulation = false): Promise<RapportImport> {
     const brutes = await this.client.rechercher(criteres);
 
     return this.traiter(brutes, 'API France Travail', simulation);
@@ -203,11 +200,7 @@ export class OffresService {
    * d'elle plutot que de deviner. Le repli sur la moyenne nationale evite de ne
    * rien afficher dans un departement peu couvert.
    */
-  async tauxSuggere(
-    romeCode: string,
-    departement?: string,
-    jours = 90,
-  ): Promise<SuggestionTaux> {
+  async tauxSuggere(romeCode: string, departement?: string, jours = 90): Promise<SuggestionTaux> {
     const barometre = await this.barometre(jours, departement);
     const local = barometre.metiers.find((metier) => metier.romeCode === romeCode);
 

@@ -203,7 +203,9 @@ describe('donnees publiques', () => {
     });
 
     it('repond au personnel de l agence', async () => {
-      const reponse = await avec(app, agence).get('/api/tension?jours=30&departement=44').expect(200);
+      const reponse = await avec(app, agence)
+        .get('/api/tension?jours=30&departement=44')
+        .expect(200);
 
       expect(reponse.body.periodeJours).toBe(30);
       expect(reponse.body.metiers[0].romeCode).toBe('J1501');

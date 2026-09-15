@@ -25,6 +25,13 @@ const erreurs = ref<Record<string, string>>({});
 const erreurGenerale = ref('');
 const envoi = ref(false);
 
+/**
+ * Adresse a laquelle le lien vient de partir. Non vide = l'inscription a
+ * abouti, et le formulaire cede la place a l'ecran d'attente : le laisser
+ * affiche inviterait a re-soumettre, ce qui ne rendrait qu'un 409.
+ */
+const enAttente = ref('');
+
 function corps() {
   return {
     interimaire: {
@@ -64,8 +71,9 @@ async function soumettre(): Promise<void> {
   envoi.value = true;
 
   try {
-    await inscrire('interimaire', corps());
-    await navigateTo('/mon-espace');
+    const reponse = await inscrire('interimaire', corps());
+
+    enAttente.value = reponse.email;
   } catch (cause) {
     const erreur = cause as { statusCode?: number; data?: { message?: string } };
     erreurGenerale.value =
@@ -83,11 +91,13 @@ async function soumettre(): Promise<void> {
     <p class="fil"><NuxtLink to="/inscription">Inscription</NuxtLink> / Interimaire</p>
     <h1>Creer mon profil</h1>
     <p class="intro">
-      Votre compte est cree immediatement. L'agence verifie ensuite vos diplomes avant de vous
-      proposer des missions.
+      Vous recevrez un lien de confirmation par courriel. L'agence verifie ensuite vos diplomes
+      avant de vous proposer des missions.
     </p>
 
-    <form novalidate @submit.prevent="soumettre">
+    <AppAttenteVerification v-if="enAttente" :email="enAttente" />
+
+    <form v-else novalidate @submit.prevent="soumettre">
       <fieldset>
         <legend>Vous</legend>
 
@@ -215,7 +225,7 @@ async function soumettre(): Promise<void> {
       </button>
     </form>
 
-    <p class="note">
+    <p v-if="!enAttente" class="note">
       Aucune donnee de sante ne vous est demandee. L'agence enregistre seulement si vous etes
       deployable, jamais pourquoi.
     </p>

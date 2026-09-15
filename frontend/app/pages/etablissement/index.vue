@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import type { MissionResume, PageResultat, PropositionResume, ResumeMissions } from '@releve/shared';
+import type {
+  MissionResume,
+  PageResultat,
+  PropositionResume,
+  ResumeMissions,
+} from '@releve/shared';
 
 useHead({ title: 'Accueil etablissement - Relève' });
 

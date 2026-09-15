@@ -31,6 +31,24 @@ services:
     volumes:
       - redis_data:/data
 
+  mailpit:
+    # Serveur SMTP de developpement : il accepte tout et n'envoie rien dehors.
+    # Les mails de verification s'ouvrent dans l'interface web, ce qui permet de
+    # derouler le parcours complet sans compte chez un fournisseur — et sans
+    # risquer d'ecrire a une vraie adresse depuis un jeu de test.
+    image: axllent/mailpit:latest
+    container_name: passerelle-mailpit
+    restart: unless-stopped
+    ports:
+      # 8025 : la boite de reception, dans le navigateur.
+      - '8025:8025'
+      # 1025 : le SMTP auquel l'API parle.
+      - '1025:1025'
+    environment:
+      MP_MAX_MESSAGES: 500
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+
 volumes:
   db_data:
   redis_data:

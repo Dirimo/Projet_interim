@@ -129,7 +129,9 @@ const obtenuLe = ref('');
 
 /** Les diplômes déjà déclarés ne sont pas reproposés. */
 const diplomesDisponibles = computed(() => {
-  const declares = new Set((profil.value?.qualificationsDetail ?? []).map((d) => d.qualificationId));
+  const declares = new Set(
+    (profil.value?.qualificationsDetail ?? []).map((d) => d.qualificationId),
+  );
 
   return (referentiel.value ?? []).filter((option) => !declares.has(option.id));
 });
@@ -156,8 +158,7 @@ function declarer(): Promise<void> {
 
 function retirerDiplome(qualificationId: string): Promise<void> {
   return appliquer(
-    () =>
-      requete<CandidatDetail>(`/mon-profil/diplomes/${qualificationId}`, { method: 'DELETE' }),
+    () => requete<CandidatDetail>(`/mon-profil/diplomes/${qualificationId}`, { method: 'DELETE' }),
     'Diplome retire.',
   );
 }
@@ -302,9 +303,7 @@ function retirerDiplome(qualificationId: string): Promise<void> {
         </li>
       </ul>
 
-      <p v-if="!profil.qualificationsDetail.length" class="vide">
-        Aucun diplome declare.
-      </p>
+      <p v-if="!profil.qualificationsDetail.length" class="vide">Aucun diplome declare.</p>
 
       <form v-if="diplomesDisponibles.length" class="ajout" @submit.prevent="declarer()">
         <label>

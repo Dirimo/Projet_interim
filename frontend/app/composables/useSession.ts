@@ -1,4 +1,4 @@
-import type { UtilisateurSession } from '@releve/shared';
+import type { ReponseInscription, UtilisateurSession } from '@releve/shared';
 
 /**
  * Session partagee par toute l'application.
@@ -21,18 +21,41 @@ export function useSession() {
   }
 
   /**
-   * Inscription des deux profils. Elle ouvre une session comme la connexion :
-   * le compte existe des la validation du formulaire, c'est la fiche qui attend
-   * l'agence, pas l'acces.
+   * Inscription des deux profils.
+   *
+   * Elle n'ouvre aucune session, et ne touche donc pas `utilisateur` : le
+   * compte existe, mais l'acces attend que l'adresse soit confirmee. La page
+   * recoit l'adresse a afficher sur l'ecran d'attente, rien de plus.
    */
   async function inscrire(
     parcours: 'entreprise' | 'interimaire',
     donnees: Record<string, unknown>,
-  ): Promise<void> {
-    utilisateur.value = await $fetch<UtilisateurSession>(`/bff/auth/inscription/${parcours}`, {
+  ): Promise<ReponseInscription> {
+    return $fetch<ReponseInscription>(`/bff/auth/inscription/${parcours}`, {
       method: 'POST',
       body: donnees,
     });
+  }
+
+  /**
+   * Confirmation de l'adresse par le lien recu : c'est ici, et nulle part
+   * ailleurs dans le parcours d'inscription, qu'une session naît. La
+   * destination vient du relais, qui la deduit du role.
+   */
+  async function confirmerEmail(jeton: string): Promise<string> {
+    const reponse = await $fetch<{ utilisateur: UtilisateurSession; destination: string }>(
+      '/bff/auth/verification/confirmer',
+      { method: 'POST', body: { jeton } },
+    );
+
+    utilisateur.value = reponse.utilisateur;
+
+    return reponse.destination;
+  }
+
+  /** Renvoi du lien. Toujours silencieux : l'API ne dit jamais si l'adresse existe. */
+  async function renvoyerVerification(email: string): Promise<void> {
+    await $fetch('/bff/auth/verification/renvoyer', { method: 'POST', body: { email } });
   }
 
   /** Relit la session depuis l'API ; laisse `utilisateur` a null si elle est morte. */
@@ -54,5 +77,15 @@ export function useSession() {
     utilisateur.value = null;
   }
 
-  return { utilisateur, connecte, connexion, inscrire, rafraichir, deconnexion, oublier };
+  return {
+    utilisateur,
+    connecte,
+    connexion,
+    inscrire,
+    confirmerEmail,
+    renvoyerVerification,
+    rafraichir,
+    deconnexion,
+    oublier,
+  };
 }

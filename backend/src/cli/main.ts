@@ -66,9 +66,7 @@ programme
 programme
   .command('importer:offres')
   .description("Collecte les offres d'interim du secteur, les nettoie et les enregistre")
-  .option('--rome <codes>', 'codes ROME separes par des virgules', listeDepuis, [
-    ...ROMES_SECTEUR,
-  ])
+  .option('--rome <codes>', 'codes ROME separes par des virgules', listeDepuis, [...ROMES_SECTEUR])
   .option('--departement <codes>', 'departements separes par des virgules', listeDepuis)
   .option('--jours <n>', 'ne prendre que les offres creees depuis N jours', Number, 30)
   .option('--max <n>', "plafond d'offres a rapatrier", Number, 600)
@@ -80,10 +78,7 @@ programme
 
     try {
       const rapport = options.fichier
-        ? await offres.importerDepuisFichier(
-            await readFile(options.fichier, 'utf8'),
-            options.sec,
-          )
+        ? await offres.importerDepuisFichier(await readFile(options.fichier, 'utf8'), options.sec)
         : await offres.importerDepuisApi(
             {
               romes: options.rome,
@@ -103,9 +98,7 @@ programme
 programme
   .command('exporter:offres')
   .description('Enregistre un instantane brut de l API, rejouable hors ligne')
-  .option('--rome <codes>', 'codes ROME separes par des virgules', listeDepuis, [
-    ...ROMES_SECTEUR,
-  ])
+  .option('--rome <codes>', 'codes ROME separes par des virgules', listeDepuis, [...ROMES_SECTEUR])
   .option('--departement <codes>', 'departements separes par des virgules', listeDepuis)
   .option('--jours <n>', 'ne prendre que les offres creees depuis N jours', Number, 30)
   .option('--max <n>', "plafond d'offres a rapatrier", Number, 600)

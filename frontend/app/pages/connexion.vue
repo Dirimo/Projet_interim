@@ -1,29 +1,54 @@
 <script setup lang="ts">
 useHead({ title: 'Connexion - Relève' });
 
-const { connexion } = useSession();
+import { CODE_EMAIL_NON_VERIFIE } from '@releve/shared';
+
+const { connexion, renvoyerVerification } = useSession();
 
 const email = ref('');
 const motDePasse = ref('');
 const erreur = ref('');
 const envoi = ref(false);
 
+/**
+ * Vrai quand le mot de passe etait bon mais l'adresse jamais confirmee. Distinct
+ * d'`erreur` parce que la conduite a tenir n'est pas la meme : il n'y a rien a
+ * corriger dans le formulaire, seulement un lien a rouvrir.
+ */
+const adresseNonConfirmee = ref(false);
+const renvoi = ref(false);
+const renvoye = ref(false);
+
 async function soumettre(): Promise<void> {
   erreur.value = '';
+  adresseNonConfirmee.value = false;
+  renvoye.value = false;
   envoi.value = true;
 
   try {
     await connexion(email.value, motDePasse.value);
     await navigateTo('/');
   } catch (cause) {
-    const statut = (cause as { statusCode?: number }).statusCode;
-    erreur.value =
-      statut === 401
-        ? 'Identifiants invalides.'
-        : "API injoignable. Verifier que l'API tourne (pnpm dev:backend).";
+    const reponse = cause as { statusCode?: number; data?: { code?: string; message?: string } };
+
+    if (reponse.data?.code === CODE_EMAIL_NON_VERIFIE) {
+      adresseNonConfirmee.value = true;
+      erreur.value = reponse.data.message ?? "Votre adresse n'a pas encore ete confirmee.";
+    } else if (reponse.statusCode === 401) {
+      erreur.value = 'Identifiants invalides.';
+    } else {
+      erreur.value = "API injoignable. Verifier que l'API tourne (pnpm dev:backend).";
+    }
   } finally {
     envoi.value = false;
   }
+}
+
+async function renvoyer(): Promise<void> {
+  renvoi.value = true;
+  await renvoyerVerification(email.value).catch(() => undefined);
+  renvoi.value = false;
+  renvoye.value = true;
 }
 </script>
 
@@ -69,6 +94,20 @@ async function soumettre(): Promise<void> {
         </label>
 
         <p v-if="erreur" class="erreur">{{ erreur }}</p>
+
+        <p v-if="renvoye" class="confirme" role="status">
+          Un nouveau lien de confirmation vient de partir vers cette adresse.
+        </p>
+
+        <AppBouton
+          v-else-if="adresseNonConfirmee"
+          type="button"
+          variante="secondaire"
+          :desactive="renvoi"
+          @click="renvoyer"
+        >
+          {{ renvoi ? 'Envoi...' : 'Renvoyer le lien de confirmation' }}
+        </AppBouton>
 
         <AppBouton type="submit" :desactive="envoi">
           {{ envoi ? 'Connexion...' : 'Se connecter' }}
@@ -160,6 +199,15 @@ input:focus-visible {
   font-size: 13px;
   color: var(--eta);
   background: var(--eta-soft);
+  border-radius: var(--r-champ);
+}
+
+.confirme {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--dom-soft, #e6f4f1);
   border-radius: var(--r-champ);
 }
 
