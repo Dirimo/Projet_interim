@@ -34,6 +34,8 @@ const PAGES_VITRINE = new Set([
   '/faq',
   '/contact',
   '/mentions-legales',
+  '/conditions-utilisation',
+  '/politique-confidentialite',
 ]);
 
 /**

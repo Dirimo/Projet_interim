@@ -18,5 +18,6 @@ export * from './reinitialisation';
 export * from './mission';
 export * from './proposition';
 export * from './matching';
+export * from './document';
 export * from './profil';
 export * from './tension';

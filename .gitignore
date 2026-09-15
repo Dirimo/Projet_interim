@@ -19,3 +19,7 @@ Thumbs.db
 
 # volumes docker locaux
 .data/
+
+# Pieces justificatives deposees par les candidats. Jamais versionnees : ce
+# sont des donnees personnelles sensibles (NIR, piece d'identite, RIB).
+backend/donnees/documents/

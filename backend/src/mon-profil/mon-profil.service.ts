@@ -8,6 +8,8 @@ import type {
   MonProfilUpdate,
   UtilisateurSession,
 } from '@releve/shared';
+import { TYPES_DOCUMENT } from '@releve/shared';
+import { DocumentsService } from '../documents/documents.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CandidatsService } from '../candidats/candidats.service';
 
@@ -25,6 +27,7 @@ export class MonProfilService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly candidats: CandidatsService,
+    private readonly documents: DocumentsService,
   ) {}
 
   /**
@@ -33,7 +36,10 @@ export class MonProfilService {
    * Le jeton d'un candidat ne porte pas d'agence : il faut la lire pour pouvoir
    * réutiliser les méthodes du back-office, qui cloisonnent toutes dessus.
    */
-  private async fiche(session: UtilisateurSession): Promise<{ id: string; agenceId: string }> {
+  /* Publique depuis que le controleur en a besoin pour les pieces justificatives :
+   * elles passent par `DocumentsService`, qui ne connait qu'un identifiant de
+   * candidat. */
+  async fiche(session: UtilisateurSession): Promise<{ id: string; agenceId: string }> {
     if (!session.candidatId) {
       throw new ForbiddenException("Ce compte n'est rattache a aucune fiche candidat");
     }
@@ -211,6 +217,7 @@ export class MonProfilService {
     });
 
     const maintenant = new Date();
+    const pieces = await this.documents.compter(id);
 
     const attendus: { cle: string; libelle: string; rempli: boolean }[] = [
       {
@@ -238,6 +245,14 @@ export class MonProfilService {
         cle: 'experience',
         libelle: 'Au moins un poste declare, pour peser dans le classement',
         rempli: candidat._count.experiences > 0,
+      },
+      {
+        // Ne bloque rien non plus, mais l'agence ne peut etablir ni contrat ni
+        // paie sans ces pieces : un dossier sans elles s'arrete a la
+        // candidature.
+        cle: 'documents',
+        libelle: 'Vos pieces justificatives : NIR, diplomes, CV, identite, RIB',
+        rempli: pieces >= TYPES_DOCUMENT.length,
       },
       {
         cle: 'telephone',

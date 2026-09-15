@@ -68,3 +68,12 @@ process.env.MAIL_HOST = '';
  * (`geocodage.spec.ts`).
  */
 process.env.GEOCODAGE_ACTIF = 'false';
+
+/**
+ * Stockage des pieces justificatives isole, et jetable.
+ *
+ * Sans cette ligne les tests ecriraient dans le dossier de developpement et y
+ * laisseraient des fichiers orphelins a chaque execution — des fichiers qui,
+ * dans la vraie vie, contiennent une piece d'identite.
+ */
+process.env.STOCKAGE_DOCUMENTS = join(RACINE, 'donnees', 'documents-test');

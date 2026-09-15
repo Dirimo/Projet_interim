@@ -580,6 +580,19 @@ export class CandidatsService {
    * findFirst et pas findUnique : un candidat d'une autre agence doit repondre
    * 404, pas 403 - on ne confirme pas qu'il existe.
    */
+  /**
+   * Verifie qu'un candidat appartient bien a l'agence, et rend son identifiant.
+   *
+   * Sert aux pieces justificatives : `DocumentsService` ne connait qu'un
+   * identifiant de candidat, le cloisonnement doit donc etre tranche ici, comme
+   * pour toutes les autres routes du vivier.
+   */
+  async exigerAppartenance(id: string, agenceId: string): Promise<string> {
+    const candidat = await this.exigerCandidat(id, agenceId, { select: { id: true } });
+
+    return candidat.id;
+  }
+
   private async exigerCandidat<TArgs extends Prisma.CandidatDefaultArgs>(
     id: string,
     agenceId: string,

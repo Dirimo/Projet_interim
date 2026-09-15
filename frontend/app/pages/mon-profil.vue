@@ -282,6 +282,8 @@ function retirerPoste(id: string): Promise<void> {
       </ul>
     </div>
 
+    <AppDossierDocuments base="/mon-profil" />
+
     <p v-if="message" class="succes" role="status">{{ message }}</p>
     <p v-if="erreur" class="erreur" role="alert">{{ erreur }}</p>
 

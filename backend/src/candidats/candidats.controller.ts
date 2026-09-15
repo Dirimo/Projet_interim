@@ -9,7 +9,9 @@ import {
   Post,
   Put,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import {
   candidatCreateSchema,
@@ -35,9 +37,11 @@ import {
   type QualificationCandidatCreate,
   type QualificationCandidatUpdate,
   type UtilisateurSession,
+  type LigneDossier,
 } from '@releve/shared';
 import { AgenceCourante, Roles, UtilisateurCourant } from '../auth/auth.decorateurs';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { DocumentsService } from '../documents/documents.service';
 import { CandidatsService } from './candidats.service';
 
 // Le vivier est un ecran de back-office : ni le client ni le candidat n'y accedent.
@@ -46,7 +50,10 @@ import { CandidatsService } from './candidats.service';
 @Roles(...ROLES_AGENCE)
 @Controller('candidats')
 export class CandidatsController {
-  constructor(private readonly candidats: CandidatsService) {}
+  constructor(
+    private readonly candidats: CandidatsService,
+    private readonly documents: DocumentsService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Lister le vivier, filtrable par statut' })
@@ -192,5 +199,42 @@ export class CandidatsController {
     @AgenceCourante() agenceId: string,
   ): Promise<CandidatDetail> {
     return this.candidats.retirerIndisponibilite(id, indisponibiliteId, agenceId);
+  }
+
+  /* ------------------------------------------------------ pieces justificatives */
+
+  /**
+   * L'agence lit les pieces pour les verifier — c'est toute la raison d'etre du
+   * depot. Elle ne peut ni en deposer ni en retirer : ces gestes appartiennent
+   * a la personne, et un document retire par un tiers serait indefendable.
+   */
+  @Get(':id/documents')
+  @ApiOperation({ summary: 'Le dossier de pieces d un candidat' })
+  async documentsDe(
+    @Param('id', ParseUUIDPipe) id: string,
+    @AgenceCourante() agenceId: string,
+  ): Promise<LigneDossier[]> {
+    const candidatId = await this.candidats.exigerAppartenance(id, agenceId);
+
+    return this.documents.dossier(candidatId);
+  }
+
+  @Get(':id/documents/:documentId/contenu')
+  @ApiOperation({ summary: 'Telecharger une piece pour la verifier' })
+  async telechargerDocument(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @AgenceCourante() agenceId: string,
+    @Res() reponse: Response,
+  ): Promise<void> {
+    const candidatId = await this.candidats.exigerAppartenance(id, agenceId);
+    const piece = await this.documents.contenu(candidatId, documentId);
+
+    reponse.setHeader('Content-Type', piece.typeMime);
+    reponse.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(piece.nomOrigine)}"`,
+    );
+    reponse.send(piece.contenu);
   }
 }

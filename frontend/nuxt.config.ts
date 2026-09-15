@@ -2,7 +2,7 @@ export default defineNuxtConfig({
   compatibilityDate: '2026-09-01',
   devtools: { enabled: true },
   devServer: { port: 3000 },
-  css: ['~/assets/css/main.css', '~/assets/css/vitrine.css'],
+  css: ['~/assets/css/main.css', '~/assets/css/vitrine.css', '~/assets/css/legal.css'],
   routeRules: {
     // L'ecran de choix a disparu : il n'y a qu'un parcours public, celui du
     // candidat. L'ancienne adresse reste valable pour les liens deja partages.

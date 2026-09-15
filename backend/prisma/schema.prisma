@@ -277,6 +277,7 @@ model Candidat {
   experiences      ExperienceProfessionnelle[]
   disponibilites   Disponibilite[]
   indisponibilites Indisponibilite[]
+  documents        DocumentCandidat[]
   propositions     Proposition[]
   contrats         Contrat[]
   missions         Mission[]
@@ -285,6 +286,70 @@ model Candidat {
   @@index([agenceId, statut])
   @@index([codePostal])
   @@map("candidat")
+}
+
+/// Pieces que l'agence demande pour constituer un dossier.
+///
+/// Deux d'entre elles ne servent qu'a l'administratif d'embauche (NIR, RIB) et
+/// deux a la verification des competences (diplome, CV). La piece d'identite
+/// valide le contrat. Cette distinction commande la duree de conservation :
+/// voir `docs/conservation-documents.md`.
+enum TypeDocument {
+  NIR
+  DIPLOME
+  CV
+  PIECE_IDENTITE
+  RIB
+}
+
+/// Piece justificative deposee par un candidat.
+///
+/// Le contenu n'est jamais en base : seule la reference du fichier l'est, le
+/// binaire vivant dans le stockage configure par `STOCKAGE_DOCUMENTS`. Une
+/// colonne `bytea` rendrait chaque `SELECT` de fiche couteux et les sauvegardes
+/// impraticables.
+///
+/// `cheminStockage` est un identifiant opaque, jamais un nom de fichier choisi
+/// par la personne : un nom d'origine se promene avec des separateurs, des
+/// accents et parfois `..`. Le nom d'origine est conserve a part, pour
+/// reaffichage seulement.
+model DocumentCandidat {
+  id         String       @id @default(uuid()) @db.Uuid
+  candidatId String       @db.Uuid
+  candidat   Candidat     @relation(fields: [candidatId], references: [id], onDelete: Cascade)
+  type       TypeDocument
+
+  /// Nom tel que la personne l'a televerse. Sert a l'affichage, jamais au disque.
+  nomOrigine String
+  /// Type MIME constate a la reception, restreint a la liste blanche du service.
+  typeMime   String
+  /// Taille en octets, plafonnee a la reception.
+  taille     Int
+  /// Identifiant opaque du fichier dans le stockage.
+  cheminStockage String @unique
+
+  /// Empreinte SHA-256 du contenu. Permet de constater qu'un fichier n'a pas
+  /// change, et de detecter un doublon sans rouvrir le binaire.
+  empreinte String
+
+  /// Date a laquelle l'agence a constate la piece. Nulle tant qu'elle ne l'a pas
+  /// fait : une piece deposee n'est pas une piece verifiee, exactement comme
+  /// pour un diplome declare.
+  verifieLe     DateTime?
+  verifieParId  String?   @db.Uuid
+
+  /// Date de peremption, pour les pieces qui en ont une (titre de sejour,
+  /// carte d'identite). Nulle sinon.
+  expireLe DateTime? @db.Date
+
+  ajouteLe  DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Un seul document par type et par candidat : deposer a nouveau remplace.
+  /// Un dossier qui accumulerait trois RIB ne dirait plus lequel fait foi.
+  @@unique([candidatId, type])
+  @@index([candidatId])
+  @@map("document_candidat")
 }
 
 model Qualification {

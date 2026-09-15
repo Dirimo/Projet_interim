@@ -67,12 +67,7 @@ const liensVitrine = [
   { to: '/contact', label: 'Contact' },
 ];
 
-/**
- * Les trois colonnes du pied de page du canvas. « Conditions d'utilisation » et
- * « Politique de confidentialite » n'y figurent pas : ces deux textes n'existent
- * pas encore, et un lien vers une page absente vaut moins qu'une ligne en moins.
- * Les mentions legales, elles, ont leur page.
- */
+/** Les trois colonnes du pied de page du canvas. */
 const colonnesPied = [
   {
     titre: 'Candidats',
@@ -92,7 +87,11 @@ const colonnesPied = [
   },
   {
     titre: 'Légal',
-    liens: [{ to: '/mentions-legales', label: 'Mentions légales' }],
+    liens: [
+      { to: '/mentions-legales', label: 'Mentions légales' },
+      { to: '/conditions-utilisation', label: "Conditions d'utilisation" },
+      { to: '/politique-confidentialite', label: 'Politique de confidentialité' },
+    ],
   },
 ];
 

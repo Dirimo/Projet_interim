@@ -16,7 +16,10 @@ export default defineEventHandler(async (event): Promise<unknown> => {
   const acces = getCookie(event, COOKIE_ACCES);
   const methode = event.method;
 
-  const corps = SANS_CORPS.has(methode) ? undefined : await readRawBody(event);
+  // `false` : le corps est lu en binaire, jamais decode en UTF-8. Un depot de
+  // fichier passe par ce relais, et une conversion en chaine corromprait le
+  // contenu sans rien signaler — le fichier arriverait entier mais illisible.
+  const corps = SANS_CORPS.has(methode) ? undefined : await readRawBody(event, false);
 
   try {
     const reponse: { status: number; _data?: unknown } = await $fetch.raw(

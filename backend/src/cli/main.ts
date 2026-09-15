@@ -2,10 +2,12 @@ import 'reflect-metadata';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Command } from 'commander';
+import { typeDocumentSchema, TYPES_DOCUMENT } from '@releve/shared';
 import { readFile, writeFile } from 'node:fs/promises';
 import { AppModule } from '../app.module';
 import { FranceTravailClient } from '../donnees-publiques/france-travail.client';
 import { OffresService, ROMES_SECTEUR } from '../donnees-publiques/offres.service';
+import { DocumentsService } from '../documents/documents.service';
 import { GeocodageService } from '../geocodage/geocodage.service';
 
 /**
@@ -194,6 +196,49 @@ programme
         // personne, et l'afficher ici est le seul endroit ou elle le verra.
         console.log('Les adresses restantes sont a corriger a la main : voir les avertissements.');
       }
+    } finally {
+      await app.close();
+    }
+  });
+
+programme
+  .command('purger:documents')
+  .description('Efface les pieces justificatives d un type au-dela d un age donne')
+  .requiredOption('--type <type>', 'NIR, DIPLOME, CV, PIECE_IDENTITE ou RIB')
+  .requiredOption('--jours <n>', 'age minimum du depot, en jours', Number)
+  .option('--sec', 'montre ce qui serait supprime, sans rien ecrire', false)
+  .action(async (options) => {
+    // Type et age sont exiges : une purge qui se declencherait sur des valeurs
+    // par defaut est une perte de donnees qui attend son heure.
+    const type = typeDocumentSchema.safeParse(String(options.type).toUpperCase());
+
+    if (!type.success) {
+      console.log(`Type inconnu. Attendus : ${TYPES_DOCUMENT.join(', ')}`);
+      process.exitCode = 1;
+
+      return;
+    }
+
+    if (!Number.isFinite(options.jours) || options.jours < 1) {
+      console.log('--jours doit etre un nombre de jours positif.');
+      process.exitCode = 1;
+
+      return;
+    }
+
+    const app = await contexte();
+    const documents = app.get(DocumentsService);
+
+    try {
+      const rapport = await documents.purger(type.data, options.jours, options.sec === true);
+
+      console.log('');
+      console.log(`Type                ${type.data}`);
+      console.log(`Deposees avant le   ${rapport.avant.toISOString().slice(0, 10)}`);
+      console.log(`Concernees          ${rapport.concernees}`);
+      console.log(`Supprimees          ${rapport.supprimees}`);
+      console.log(options.sec ? 'Simulation : rien n a ete ecrit.' : '');
+      console.log('');
     } finally {
       await app.close();
     }

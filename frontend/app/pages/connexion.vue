@@ -114,11 +114,9 @@ async function renvoyer(): Promise<void> {
       </form>
     </AppCarte>
 
-    <p class="legal">
-      En continuant, vous acceptez nos <a href="#">conditions d'utilisation</a> et notre
-      <a href="#">politique de confidentialité</a>.
-    </p>
-
+    <!-- Plus de phrase de consentement ici : on n'accepte rien en se
+         connectant, l'engagement se prend a la creation du compte. Les deux
+         textes restent accessibles depuis le pied de page. -->
     <p class="aide">
       Démonstration : <code>admin@releve.example</code> / <code>Releve2026!</code> après
       <code>pnpm db:seed</code>.
@@ -233,7 +231,6 @@ input:focus-visible {
   border-radius: var(--r-champ);
 }
 
-.legal,
 .aide {
   margin: 18px 0 0;
   font-size: 12px;
@@ -242,9 +239,6 @@ input:focus-visible {
   color: var(--muted);
 }
 
-.legal a {
-  color: inherit;
-}
 
 code {
   font-family: var(--mono);

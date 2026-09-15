@@ -30,7 +30,7 @@ Le projet est un **POC de onze jours**. Quatre jalons sur cinq sont entamés.
 | J7–J9 — Tableau de bord, vitrine, conformité | Tableau de bord candidat, pages publiques, n8n, RGAA / RGESN / RGPD                                       | **Partiel** — voir ci-dessous |
 | J10–J11 — Tests, livrables, soutenance       | Couverture transmise, étude de marché, chiffrage réel, pitch                                              | À faire · 4 j·dev             |
 
-**288 tests au vert** : 256 sur l'API, 32 sur les règles partagées. Le front n'en a aucun.
+**306 tests au vert** : 274 sur l'API, 32 sur les règles partagées. Le front n'en a aucun.
 
 Du jalon J7–J9 sont livrés le **tableau de bord candidat**, les **six pages vitrine** (accueil,
 fonctionnement, à propos, FAQ, contact, mentions légales) et la refonte complète des écrans sur le
@@ -89,7 +89,7 @@ navigateur sur **http://localhost:8025**. Aucun message ne sort de la machine, c
 dérouler une inscription complète sans écrire à une vraie adresse.
 
 ```bash
-pnpm test                    # 288 tests : règles partagées + intégration API
+pnpm test                    # 306 tests : règles partagées + intégration API
 ```
 
 La base d'intégration (`passerelle_test`) est créée et migrée automatiquement au
@@ -386,6 +386,8 @@ backend/                          API NestJS
     matching/                     porte d'éligibilité et score explicable
       score.ts                    le barème, sans Prisma ni Nest : testable seul
     missions/                     dépôt de besoin, visibilité par profil, annulation
+    documents/                    pieces justificatives : stockage, depot, purge
+      stockage.service.ts         disque, noms opaques, racine jamais servie
     mon-profil/                   ce que l'intérimaire modifie sur sa propre fiche
     propositions/                 candidatures, décision du client, mission confirmée
     donnees-publiques/            France Travail : collecte, nettoyage, baromètre
@@ -438,6 +440,7 @@ frontend/                         Front Nuxt
       AppIcon.vue                 inline les tracés pour qu'ils suivent la couleur
       AppAttenteVerification.vue  « consultez votre boîte mail » après inscription
     data/vitrine.ts               tout le contenu éditorial des pages publiques, en un seul endroit
+    data/legal.ts                 les faits juridiques, à compléter en un seul fichier
     utils/mise-en-forme.ts        dates, durées et montants : une seule définition
     layouts/default.vue           deux coques : publique, et applicative à barre latérale
     plugins/affichage.client.ts   applique contraste et animations dès le démarrage
@@ -454,6 +457,8 @@ frontend/                         Front Nuxt
       faq.vue                     six questions, accordéon natif
       contact.vue                 coordonnées et formulaire, qui compose un courriel
       mentions-legales.vue        rubriques légales, champs « À compléter », en noindex
+      conditions-utilisation.vue  brouillon de CGU, en noindex
+      politique-confidentialite.vue  traitements réels + ce qui reste à préciser
       connexion.vue
       inscription/interimaire.vue le seul parcours public ; /inscription y redirige (301)
       verification.vue            cible du lien reçu : confirme, puis redirige selon le rôle
@@ -804,7 +809,7 @@ m'est proposée — en listant les manques dans l'ordre où ils bloquent.
 | `pnpm dev`                               | Contracts compilés, puis API et front en parallèle  |
 | `pnpm dev:backend` / `pnpm dev:frontend` | Un seul des deux                                    |
 | `pnpm build`                             | Contracts, puis API, puis front                     |
-| `pnpm test`                              | Règles partagées (32) puis intégration API (256)    |
+| `pnpm test`                              | Règles partagées (32) puis intégration API (274)    |
 | `pnpm test:shared`                       | Règles partagées seules, sans base                  |
 | `pnpm test:backend`                      | Intégration API seule                               |
 | `pnpm typecheck`                         | TypeScript sur les trois paquets, tests compris     |
@@ -838,14 +843,14 @@ campagne ne sont pas le même trajet, et c'est le temps de route qui décide si 
 accepte. PostGIS n'y changerait rien — il mesure aussi à vol d'oiseau. Il faudra du routage (OSRM
 auto-hébergé sur un extrait OSM, ou une API de matrice de distances).
 
-**Aucun dépôt de pièce justificative.** Il n'y a pas de stockage de fichiers dans le projet :
-`justificatifUrl` n'est qu'une chaîne, et les certificats de travail comme les diplômes se
-vérifient hors plateforme. C'est le plus gros écart avec le canvas de design, qui en fait le cœur
-de trois écrans — étape 2 de l'inscription, cartes du dossier candidat, complétion par pièce. Ces
-parties ne sont donc pas transposées. Le chantier est entier : modèle, stockage, route avec limite
-de taille et contrôle de type, politique de rétention — et les pièces visées (NIR, pièce d'identité,
-RIB) comptent parmi les plus sensibles du RGPD. C'est aussi ce qui manque avant d'envisager une
-extraction automatique de CV.
+**Le dépôt de pièces est en place, sans les garde-fous d'un usage réel.** Modèle
+`DocumentCandidat`, stockage disque sous `STOCKAGE_DOCUMENTS`, routes de dépôt, de téléchargement et
+de retrait, purge manuelle par la CLI. Manquent le chiffrement au repos, l'analyse antivirale, la
+vérification de la signature du fichier, la journalisation des accès et le déclenchement périodique
+de la purge. Les durées de conservation sont proposées, pas arbitrées — et la première décision à
+prendre est de savoir si la copie de la pièce d'identité doit être conservée une fois le contrôle
+constaté. Tout est détaillé dans
+[`docs/conservation-documents.md`](docs/conservation-documents.md).
 
 **Aucune notification métier.** Les deux seuls courriels envoyés concernent le compte lui-même —
 confirmation d'adresse et alerte de changement de mot de passe. Côté métier, un candidat retenu ne
@@ -868,17 +873,19 @@ mais à revoir si la suite s'allonge.
 le titre de page dans `nuxt.config.ts` et l'en-tête du back-office portent encore le nom de
 travail. Sans conséquence technique, mais visible en soutenance.
 
-**Aucun test ne couvre le front.** Les 288 tests portent sur l'API et les règles partagées ; les
+**Aucun test ne couvre le front.** Les 306 tests portent sur l'API et les règles partagées ; les
 30 pages Nuxt, le layout et les composants ne sont vérifiés que par le typecheck et le lint.
 
 **La couverture n'est pas mesurée.** `vitest run --coverage` n'est câblé nulle part, alors que le
 rapport de couverture est un livrable attendu.
 
-**Un consentement adossé à rien.** `/connexion` affiche « En continuant, vous acceptez nos
-conditions d'utilisation et notre politique de confidentialité », avec deux liens `href="#"`. Ces
-deux textes n'existent pas. C'est le seul endroit du site qui affirme aujourd'hui
-quelque chose de faux, et il se trouve à l'instant où le consentement est censé être recueilli :
-soit les documents sont écrits, soit la phrase est retirée.
+**Les trois textes juridiques sont des brouillons de structure.** Mentions légales, conditions
+d'utilisation et politique de confidentialité existent et sont reliées au pied de page. Elles disent
+ce que le code fait vraiment, et affichent « À compléter » là où seule l'agence détient le fait —
+douze champs aux mentions légales, dont la garantie financière obligatoire pour une entreprise de
+travail temporaire. Aucune n'a été relue par un professionnel du droit, et les trois sont en
+`noindex`. **Aucune phrase de consentement n'est affichée** tant qu'elles ne sont pas finies : faire
+accepter un brouillon ne vaudrait pas mieux que le lien mort qu'il remplace.
 
 **L'identité légale de l'éditeur manque.** `/mentions-legales` porte ses rubriques, mais onze champs
 affichent « À compléter » : raison sociale, SIRET, directeur de la publication, hébergeur, et la
