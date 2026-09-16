@@ -17,11 +17,20 @@
  *    emplacements existent, il n'y manque que les valeurs de l'agence.
  */
 
+import { ADRESSE_CONTACT } from '@releve/shared';
+
 /** Slogan du canvas, repris en accroche sur chaque page vitrine. */
 export const ACCROCHE = 'Le soin, sans attendre';
 
-/** Adresse deja utilisee par l'ecran d'inscription pour les etablissements. */
-export const ADRESSE_CONTACT = 'contact@releve.example';
+/**
+ * Adresse de l'agence.
+ *
+ * Reprise du paquet partage : c'est elle que l'API prend pour destinataire du
+ * formulaire de contact, sauf si le deploiement fixe `CONTACT_EMAIL`. Deux
+ * valeurs separees donneraient une page qui annonce une adresse et un courriel
+ * qui part ailleurs.
+ */
+export { ADRESSE_CONTACT };
 
 /**
  * Chiffres de l'en-tete d'accueil.
@@ -202,10 +211,7 @@ export const COORDONNEES = [
   { libelle: 'Adresse mail', valeur: ADRESSE_CONTACT },
 ] as const;
 
-/** Sujets proposes par le formulaire de contact. */
-export const SUJETS_CONTACT = [
-  'Une mission en particulier',
-  'Mon dossier candidat',
-  'Contrat et fiche de paie',
-  'Autre demande',
-] as const;
+/**
+ * Les sujets du formulaire de contact vivent dans `@releve/shared` : l'API les
+ * valide, donc un sujet ajoute ici seul serait refuse a l'envoi.
+ */

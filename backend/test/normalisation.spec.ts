@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   departementDepuisLieu,
   empreinteOffre,
-  nettoyerLot,
-  nettoyerOffre,
+  preparerLot,
+  preparerOffre,
   normaliserIntitule,
   tauxHoraireDepuisLibelle,
   type OffreBrute,
@@ -131,8 +131,8 @@ describe('nettoyage des offres publiques', () => {
     };
 
     it('donne la meme empreinte a deux republications', () => {
-      const premiere = nettoyerOffre(base);
-      const seconde = nettoyerOffre({
+      const premiere = preparerOffre(base);
+      const seconde = preparerOffre({
         ...base,
         id: 'B',
         intitule: 'AIDE-SOIGNANT H/F',
@@ -142,22 +142,32 @@ describe('nettoyage des offres publiques', () => {
       expect(premiere?.empreinte).toBe(seconde?.empreinte);
     });
 
-    it('ne retient qu une offre et garde la plus ancienne date', () => {
-      const lot = nettoyerLot([
+    /**
+     * Les republications sont comptees, plus fusionnees.
+     *
+     * La licence de reutilisation demande de restituer les offres mises a
+     * disposition : deux agences qui publient la meme mission publient deux
+     * annonces reelles, et en masquer une amputerait le catalogue. Le
+     * dedoublonnage a lieu plus loin, dans la requete du barometre, sur cette
+     * meme empreinte.
+     */
+    it('conserve les republications et les signale', () => {
+      const lot = preparerLot([
         { ...base, id: 'B', dateCreation: '2026-09-12T08:00:00.000Z' },
         { ...base, id: 'A', dateCreation: '2026-09-10T08:00:00.000Z' },
       ]);
 
-      expect(lot.offres).toHaveLength(1);
+      expect(lot.offres).toHaveLength(2);
       expect(lot.doublons).toBe(1);
-      expect(lot.offres[0]!.publieeLe.toISOString()).toBe('2026-09-10T08:00:00.000Z');
+      expect(new Set(lot.offres.map((offre) => offre.empreinte)).size).toBe(1);
     });
 
     it('distingue deux employeurs sur la meme commune', () => {
-      const lot = nettoyerLot([base, { ...base, id: 'C', entreprise: { nom: 'AUTRE AGENCE' } }]);
+      const lot = preparerLot([base, { ...base, id: 'C', entreprise: { nom: 'AUTRE AGENCE' } }]);
 
       expect(lot.offres).toHaveLength(2);
       expect(lot.doublons).toBe(0);
+      expect(new Set(lot.offres.map((offre) => offre.empreinte)).size).toBe(2);
     });
 
     it('ignore la casse et les accents dans l empreinte', () => {
@@ -179,8 +189,14 @@ describe('nettoyage des offres publiques', () => {
   });
 
   describe('lot complet', () => {
-    it('ecarte ce qui n est pas situable et compte ce qui a ete fait', () => {
-      const lot = nettoyerLot([
+    /**
+     * Une offre non situable reste publiable : « France entiere » est un lieu
+     * de travail parfaitement lisible pour un candidat. Elle sort des agregats
+     * departementaux, elle ne sort pas du site — l'ecarter etait juste tant que
+     * la seule destination etait une statistique.
+     */
+    it('conserve tout ce qui est affichable et compte ce qui manque', () => {
+      const lot = preparerLot([
         {
           id: 'ok',
           appellationlibelle: 'Aide-soignant / Aide-soignante',
@@ -189,9 +205,10 @@ describe('nettoyage des offres publiques', () => {
           salaire: { libelle: 'Horaire de 15.0 Euros' },
           dateCreation: '2026-09-10T08:00:00.000Z',
         },
-        // Sans departement : inexploitable pour un barometre territorial.
+        // Sans departement : hors barometre territorial, mais affichable.
         {
           id: 'sans-lieu',
+          intitule: 'Aide soignant (F/H)',
           appellationlibelle: 'Aide-soignant / Aide-soignante',
           romeCode: 'J1501',
           lieuTravail: { libelle: 'France entiere', commune: 'Nantes' },
@@ -208,9 +225,22 @@ describe('nettoyage des offres publiques', () => {
       ]);
 
       expect(lot.recues).toBe(3);
-      expect(lot.ecartees).toBe(1);
-      expect(lot.offres).toHaveLength(2);
-      expect(lot.sansSalaire).toBe(1);
+      // Rien n'est inexploitable : les trois ont un identifiant, un titre et
+      // une date.
+      expect(lot.ecartees).toBe(0);
+      expect(lot.offres).toHaveLength(3);
+      expect(lot.sansDepartement).toBe(1);
+      expect(lot.sansSalaire).toBe(2);
+    });
+
+    it('ecarte ce qui n a ni titre ni date', () => {
+      const lot = preparerLot([
+        { id: 'sans-date', intitule: 'Aide soignant' },
+        { id: 'sans-titre', dateCreation: '2026-09-10T08:00:00.000Z' },
+      ]);
+
+      expect(lot.ecartees).toBe(2);
+      expect(lot.offres).toHaveLength(0);
     });
   });
 });

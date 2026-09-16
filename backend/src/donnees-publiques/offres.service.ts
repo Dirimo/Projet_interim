@@ -1,10 +1,18 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import type { Barometre, SuggestionTaux } from '@releve/shared';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma, StatutOffreCollectee, type OffreCollectee } from '@prisma/client';
+import type {
+  Barometre,
+  CompetenceOffre,
+  OffrePubliqueDetail,
+  OffrePubliqueResume,
+  OffresQuery,
+  PageResultat,
+  SuggestionTaux,
+} from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { CacheService } from './cache.service';
 import { FranceTravailClient, type CriteresRecherche } from './france-travail.client';
-import { nettoyerLot, type OffreBrute, type ResultatNettoyage } from './normalisation';
+import { preparerLot, type OffreBrute, type ResultatNettoyage } from './normalisation';
 
 /**
  * Codes ROME du secteur, et raison de leur presence.
@@ -21,6 +29,20 @@ export const ROMES_SECTEUR = [
 
 /** Duree de vie du barometre en cache : il ne change qu'apres un import. */
 const CACHE_SECONDES = 24 * 3600;
+
+/** Valeur de la colonne `source` pour les offres venant de France Travail. */
+const SOURCE_FRANCE_TRAVAIL = 'FRANCE_TRAVAIL';
+
+/**
+ * Part du catalogue qu'un balayage doit ramener pour qu'on le croie complet.
+ *
+ * Le chiffre est volontairement prudent. Une variation normale du marche fait
+ * bouger le catalogue de quelques pourcents d'un jour a l'autre ; tomber a
+ * moins de sept offres sur dix signale un import tronque — plafond `max` trop
+ * bas, coupure reseau au milieu de la pagination, ou API qui repond court. Dans
+ * ces cas-la, l'absence d'une offre ne prouve pas sa disparition.
+ */
+const PART_MINIMALE_BALAYAGE = 0.7;
 
 interface LigneAgregat {
   romeCode: string;
@@ -39,6 +61,11 @@ export interface RapportImport extends ResultatNettoyage {
   enregistrees: number;
   source: string;
   simulation: boolean;
+  /**
+   * Offres passees en EXPIREE parce qu'elles ont disparu de la source. Nul
+   * quand le balayage n'etait pas complet : voir `expirerLesDisparues`.
+   */
+  expirees: number;
 }
 
 @Injectable()
@@ -52,63 +79,97 @@ export class OffresService {
   ) {}
 
   /**
-   * Importe depuis l'API. Le nettoyage est fait avant toute ecriture : ce qui
-   * entre en base est deja normalise et dedoublonne, la table ne contient donc
-   * jamais de brut a retraiter plus tard.
+   * Importe depuis l'API.
+   *
+   * `balayageComplet` dit si le resultat couvre reellement tout ce que la
+   * source publie sur ces criteres. Lui seul autorise l'expiration des offres
+   * absentes : voir `expirerLesDisparues`, ou se joue toute la prudence de
+   * cette methode.
    */
-  async importerDepuisApi(criteres: CriteresRecherche, simulation = false): Promise<RapportImport> {
+  async importerDepuisApi(
+    criteres: CriteresRecherche,
+    simulation = false,
+    balayageComplet = false,
+  ): Promise<RapportImport> {
     const brutes = await this.client.rechercher(criteres);
 
-    return this.traiter(brutes, 'API France Travail', simulation);
+    return this.traiter(brutes, 'API France Travail', simulation, balayageComplet);
   }
 
   /**
    * Importe depuis un instantane local.
    *
    * Indispensable le jour d'une demonstration : l'API peut etre indisponible,
-   * le quota atteint, ou le reseau filtre. Le fichier rejoue exactement le meme
-   * nettoyage que l'appel en direct.
+   * le quota atteint, ou le reseau filtre. Le fichier rejoue exactement la meme
+   * preparation que l'appel en direct.
+   *
+   * Jamais de balayage complet ici : un instantane est par nature partiel, et
+   * en deduire que le reste du catalogue a disparu effacerait le site.
    */
   async importerDepuisFichier(contenu: string, simulation = false): Promise<RapportImport> {
     const lu = JSON.parse(contenu) as { resultats?: OffreBrute[] } | OffreBrute[];
     const brutes = Array.isArray(lu) ? lu : (lu.resultats ?? []);
 
-    return this.traiter(brutes, 'instantane local', simulation);
+    return this.traiter(brutes, 'instantane local', simulation, false);
   }
 
   private async traiter(
     brutes: OffreBrute[],
     source: string,
     simulation: boolean,
+    balayageComplet: boolean,
   ): Promise<RapportImport> {
-    const nettoye = nettoyerLot(brutes);
+    const prepare = preparerLot(brutes);
 
     if (simulation) {
-      return { ...nettoye, enregistrees: 0, source, simulation: true };
+      return { ...prepare, enregistrees: 0, expirees: 0, source, simulation: true };
     }
+
+    const debutBalayage = new Date();
 
     // Upsert plutot qu'insert : une offre republiee le lendemain doit mettre a
     // jour sa ligne, pas faire echouer tout le lot sur une cle dupliquee.
     let enregistrees = 0;
 
-    for (const offre of nettoye.offres) {
+    for (const offre of prepare.offres) {
       const donnees = {
         romeCode: offre.romeCode,
         romeLibelle: offre.romeLibelle,
         intitule: offre.intitule,
         intituleNormalise: offre.intituleNormalise,
+        description: offre.description,
         entreprise: offre.entreprise,
+        entrepriseDescription: offre.entrepriseDescription,
         departement: offre.departement,
-        commune: offre.commune,
+        communeNom: offre.communeNom,
+        communeCode: offre.communeCode,
         codePostal: offre.codePostal,
         latitude: offre.latitude,
         longitude: offre.longitude,
         tauxHoraire: offre.tauxHoraire,
         salaireLibelle: offre.salaireLibelle,
         experienceExigee: offre.experienceExigee,
+        experienceLibelle: offre.experienceLibelle,
+        qualificationLibelle: offre.qualificationLibelle,
+        secteurActiviteLibelle: offre.secteurActiviteLibelle,
+        competences: offre.competences,
+        horaires: offre.horaires,
+        conditionsExercice: offre.conditionsExercice,
+        dureeTravailLibelle: offre.dureeTravailLibelle,
+        natureContrat: offre.natureContrat,
+        typeContrat: offre.typeContrat,
+        typeContratLibelle: offre.typeContratLibelle,
+        alternance: offre.alternance,
         nombrePostes: offre.nombrePostes,
         publieeLe: offre.publieeLe,
+        actualiseeLe: offre.actualiseeLe,
+        urlOrigine: offre.urlOrigine,
         empreinte: offre.empreinte,
+        // Revue chez la source, donc de retour en ligne : une offre republiee
+        // apres avoir ete expiree doit redevenir visible.
+        statut: StatutOffreCollectee.ACTIVE,
+        expireeLe: null,
+        vueLe: debutBalayage,
       };
 
       await this.prisma.offreCollectee.upsert({
@@ -120,14 +181,61 @@ export class OffresService {
       enregistrees += 1;
     }
 
+    const expirees = balayageComplet
+      ? await this.expirerLesDisparues(debutBalayage, prepare.offres.length)
+      : 0;
+
     await this.cache.oublier('tension:*');
+    await this.cache.oublier('offres:*');
 
     this.logger.log(
-      `Import ${source} : ${nettoye.recues} recues, ${nettoye.ecartees} ecartees, ` +
-        `${nettoye.doublons} doublons, ${enregistrees} enregistrees`,
+      `Import ${source} : ${prepare.recues} recues, ${prepare.ecartees} ecartees, ` +
+        `${prepare.doublons} republications, ${enregistrees} enregistrees, ${expirees} expirees`,
     );
 
-    return { ...nettoye, enregistrees, source, simulation: false };
+    return { ...prepare, enregistrees, expirees, source, simulation: false };
+  }
+
+  /**
+   * Passe en EXPIREE les offres que le dernier balayage complet n'a pas revues.
+   *
+   * La licence de reutilisation impose qu'une offre retiree chez France Travail
+   * disparaisse aussi d'ici. Sans cette etape, le site afficherait indefiniment
+   * des missions deja pourvues — c'est a la fois une infraction et le pire
+   * defaut possible pour un site d'offres.
+   *
+   * Le garde-fou est ce qui compte. Le client plafonne les rapatriements
+   * (`max`, et un rang maximal de 3000 impose par l'API) : un balayage tronque
+   * rapporte une fraction du catalogue, et expirer tout le reste effacerait le
+   * site en une commande. On refuse donc d'expirer si le balayage a ramene
+   * moins que le seuil, et on le dit dans le journal plutot que de le taire.
+   */
+  private async expirerLesDisparues(debutBalayage: Date, vues: number): Promise<number> {
+    const actives = await this.prisma.offreCollectee.count({
+      where: { source: SOURCE_FRANCE_TRAVAIL, statut: StatutOffreCollectee.ACTIVE },
+    });
+
+    const plancher = Math.floor(actives * PART_MINIMALE_BALAYAGE);
+
+    if (actives > 0 && vues < plancher) {
+      this.logger.warn(
+        `Expiration annulee : ${vues} offres revues pour ${actives} actives en base ` +
+          `(seuil ${plancher}). Un balayage tronque ne prouve pas une disparition.`,
+      );
+
+      return 0;
+    }
+
+    const { count } = await this.prisma.offreCollectee.updateMany({
+      where: {
+        source: SOURCE_FRANCE_TRAVAIL,
+        statut: StatutOffreCollectee.ACTIVE,
+        vueLe: { lt: debutBalayage },
+      },
+      data: { statut: StatutOffreCollectee.EXPIREE, expireeLe: new Date() },
+    });
+
+    return count;
   }
 
   /**
@@ -147,7 +255,38 @@ export class OffresService {
 
     const depuis = new Date(Date.now() - jours * 24 * 3600 * 1000);
 
+    /**
+     * Le dedoublonnage se joue dans le `DISTINCT ON` ci-dessous, et c'est un
+     * changement de fond.
+     *
+     * Il se faisait auparavant a l'import, lot par lot, avant l'ecriture. Deux
+     * republications de la meme offre arrivees dans deux imports differents
+     * portaient deux identifiants distincts : elles entraient toutes les deux
+     * en base et la tension les comptait deux fois. L'index sur `empreinte`
+     * existait mais ne servait a rien.
+     *
+     * Les lignes sont desormais toutes conservees — la licence de reutilisation
+     * demande de restituer le catalogue — et c'est ici qu'on n'en garde qu'une
+     * par empreinte. A empreinte egale, la plus ancienne gagne : c'est la vraie
+     * date de mise sur le marche, et prendre la republication ferait glisser la
+     * fenetre de tension a chaque reprise de l'annonce.
+     *
+     * Les offres expirees restent comptees : elles ont bel et bien existe
+     * pendant la periode observee, et les retirer ferait fondre le barometre a
+     * mesure que les missions se pourvoient.
+     */
     const lignes = await this.prisma.$queryRaw<LigneAgregat[]>`
+      WITH uniques AS (
+        SELECT DISTINCT ON ("empreinte")
+          "romeCode", "romeLibelle", "departement", "nombrePostes",
+          "tauxHoraire", "experienceExigee"
+        FROM "offre_collectee"
+        WHERE "publieeLe" >= ${depuis}
+          AND "romeCode" IS NOT NULL
+          AND "departement" IS NOT NULL
+          AND (${departement ?? null}::text IS NULL OR "departement" = ${departement ?? null})
+        ORDER BY "empreinte", "publieeLe" ASC
+      )
       SELECT
         "romeCode",
         MIN("romeLibelle")                                              AS "romeLibelle",
@@ -159,9 +298,7 @@ export class OffresService {
         MAX("tauxHoraire")                                              AS "maximum",
         COUNT(*) FILTER (WHERE "experienceExigee")                      AS "avecExperience",
         COUNT(*) FILTER (WHERE "tauxHoraire" IS NULL)                   AS "sansSalaire"
-      FROM "offre_collectee"
-      WHERE "publieeLe" >= ${depuis}
-        AND (${departement ?? null}::text IS NULL OR "departement" = ${departement ?? null})
+      FROM uniques
       GROUP BY "romeCode", "departement"
       ORDER BY COUNT(*) DESC
     `;
@@ -190,6 +327,123 @@ export class OffresService {
     await this.cache.ecrire(cle, barometre, CACHE_SECONDES);
 
     return barometre;
+  }
+
+  /**
+   * Liste publique des offres republiees.
+   *
+   * Seules les ACTIVE sortent : une offre retiree chez la source doit
+   * disparaitre du site, meme si elle reste en base pour le barometre.
+   *
+   * Aucun dedoublonnage ici, contrairement au barometre. Deux agences qui
+   * publient la meme mission publient deux offres reelles, et en masquer une
+   * reviendrait a amputer le catalogue que la licence demande de restituer.
+   */
+  async lister(query: OffresQuery): Promise<PageResultat<OffrePubliqueResume>> {
+    const where: Prisma.OffreCollecteeWhereInput = {
+      statut: StatutOffreCollectee.ACTIVE,
+      ...(query.departement ? { departement: query.departement } : {}),
+      ...(query.rome ? { romeCode: query.rome } : {}),
+      ...(query.tauxMinimum !== undefined ? { tauxHoraire: { gte: query.tauxMinimum } } : {}),
+      ...(query.recherche
+        ? {
+            OR: [
+              { intitule: { contains: query.recherche, mode: 'insensitive' } },
+              { entreprise: { contains: query.recherche, mode: 'insensitive' } },
+              { communeNom: { contains: query.recherche, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
+    // `nulls: 'last'` sur le taux : sur ce secteur une offre sur seize
+    // n'annonce aucune remuneration, et Postgres trierait ces NULL en tete d'un
+    // classement decroissant — la liste s'ouvrirait sur les offres muettes.
+    const orderBy: Prisma.OffreCollecteeOrderByWithRelationInput[] =
+      query.tri === 'TAUX_DECROISSANT'
+        ? [{ tauxHoraire: { sort: 'desc', nulls: 'last' } }, { publieeLe: 'desc' }]
+        : [{ publieeLe: 'desc' }];
+
+    const [total, lignes] = await Promise.all([
+      this.prisma.offreCollectee.count({ where }),
+      this.prisma.offreCollectee.findMany({
+        where,
+        orderBy,
+        skip: (query.page - 1) * query.limite,
+        take: query.limite,
+      }),
+    ]);
+
+    return {
+      donnees: lignes.map((ligne) => this.enResume(ligne)),
+      total,
+      page: query.page,
+      limite: query.limite,
+    };
+  }
+
+  /**
+   * Detail d'une offre republiee.
+   *
+   * Une offre expiree renvoie 404 plutot que son contenu : la licence impose
+   * qu'elle disparaisse, et un lien partage la veille ne doit pas continuer a
+   * afficher une mission deja pourvue.
+   */
+  async detail(id: string): Promise<OffrePubliqueDetail> {
+    const offre = await this.prisma.offreCollectee.findFirst({
+      where: { id, statut: StatutOffreCollectee.ACTIVE },
+    });
+
+    if (!offre) {
+      throw new NotFoundException("Cette offre n'est plus diffusee");
+    }
+
+    return {
+      ...this.enResume(offre),
+      description: offre.description,
+      entrepriseDescription: offre.entrepriseDescription,
+      romeCode: offre.romeCode,
+      romeLibelle: offre.romeLibelle,
+      experienceLibelle: offre.experienceLibelle,
+      qualificationLibelle: offre.qualificationLibelle,
+      secteurActiviteLibelle: offre.secteurActiviteLibelle,
+      competences: (offre.competences ?? []) as unknown as CompetenceOffre[],
+      horaires: (offre.horaires ?? []) as unknown as string[],
+      conditionsExercice: (offre.conditionsExercice ?? []) as unknown as string[],
+      natureContrat: offre.natureContrat,
+      alternance: offre.alternance,
+      latitude: offre.latitude,
+      longitude: offre.longitude,
+    };
+  }
+
+  /**
+   * Passage de la ligne en base a ce que voit le visiteur.
+   *
+   * `intituleNormalise` n'apparait volontairement pas : c'est une valeur
+   * derivee, calculee pour regrouper des annonces dans le barometre. L'afficher
+   * a la place du titre de l'employeur reviendrait a denaturer l'offre, ce que
+   * la licence de reutilisation interdit.
+   */
+  private enResume(ligne: OffreCollectee): OffrePubliqueResume {
+    return {
+      id: ligne.id,
+      source: ligne.source,
+      intitule: ligne.intitule,
+      entreprise: ligne.entreprise,
+      communeNom: ligne.communeNom,
+      departement: ligne.departement,
+      codePostal: ligne.codePostal,
+      salaireLibelle: ligne.salaireLibelle,
+      tauxHoraire: ligne.tauxHoraire === null ? null : Number(ligne.tauxHoraire),
+      typeContratLibelle: ligne.typeContratLibelle,
+      dureeTravailLibelle: ligne.dureeTravailLibelle,
+      experienceExigee: ligne.experienceExigee,
+      nombrePostes: ligne.nombrePostes,
+      publieeLe: ligne.publieeLe.toISOString(),
+      actualiseeLe: ligne.actualiseeLe?.toISOString() ?? null,
+      urlOrigine: ligne.urlOrigine,
+    };
   }
 
   /**

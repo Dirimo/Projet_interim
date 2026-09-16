@@ -1,7 +1,12 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from './mail.service';
-import { courrielConservationDocuments, courrielMotDePasseChange } from './gabarits';
+import {
+  courrielConservationDocuments,
+  courrielDossierValide,
+  courrielMotDePasseChange,
+} from './gabarits';
 
 /**
  * Ce qu'on ecrit a quelqu'un a propos de son compte.
@@ -17,6 +22,7 @@ export class NotificationsCompteService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mail: MailService,
+    private readonly config: ConfigService,
   ) {}
 
   /** Adresse et prenom d'affichage, selon ce a quoi le compte est rattache. */
@@ -88,6 +94,31 @@ export class NotificationsCompteService {
           year: 'numeric',
         }),
       ),
+    );
+  }
+
+  /**
+   * Annonce a un candidat que son dossier vient d'etre valide.
+   *
+   * Relaye a partir de la fiche et non du compte : c'est l'agence qui valide un
+   * candidat, et elle ne connait que l'identifiant de la fiche. Reste sans
+   * effet si la fiche n'a pas de compte actif, ou si la personne a coupe ses
+   * notifications — ce courriel rend service, il ne porte aucune obligation.
+   */
+  async dossierValide(candidatId: string): Promise<void> {
+    const compte = await this.prisma.utilisateur.findFirst({
+      where: { candidatId, actif: true, notificationsEmail: true },
+      select: { email: true, candidat: { select: { prenom: true } } },
+    });
+
+    if (!compte) {
+      return;
+    }
+
+    const site = (this.config.get<string>('APP_URL') ?? 'http://localhost:3000').replace(/\/+$/, '');
+
+    await this.mail.envoyer(
+      courrielDossierValide(compte.email, compte.candidat?.prenom ?? null, `${site}/missions`),
     );
   }
 }

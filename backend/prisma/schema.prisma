@@ -160,6 +160,20 @@ model Utilisateur {
   conditionsAccepteesLe DateTime?
   conditionsVersion     String?
 
+  /// Reception des courriels qui ne sont pas lies a la securite du compte :
+  /// validation du dossier, missions correspondantes.
+  ///
+  /// Vrai par defaut : quelqu'un qui s'inscrit sur une plateforme d'interim
+  /// cherche des missions, et ne pas l'avertir qu'il en existe reviendrait a
+  /// lui rendre le service a moitie. Il reste maitre du reglage depuis
+  /// « Mon compte ».
+  ///
+  /// Ne commande jamais les courriels transactionnels — confirmation
+  /// d'adresse, reinitialisation, fin de conservation des pieces. Ceux-la
+  /// portent une obligation ou une consequence irreversible : les taire parce
+  /// qu'une case est decochee ferait effacer des documents sans prevenir.
+  notificationsEmail Boolean @default(true)
+
   agenceId   String?   @db.Uuid
   agence     Agence?   @relation(fields: [agenceId], references: [id], onDelete: SetNull)
   candidatId String?   @unique @db.Uuid
@@ -278,6 +292,13 @@ model Candidat {
 
   visiteMedicaleLe  DateTime? @db.Date
   vaccinationVerifiee Boolean @default(false)
+
+  /// Derniere fois que le candidat a ete averti de missions correspondantes.
+  ///
+  /// Sert de borne au balayage quotidien : seules les missions publiees depuis
+  /// cette date sont annoncees. Sans elle, chaque passage renverrait le meme
+  /// courriel, et la personne se desabonnerait au troisieme.
+  missionsNotifieesLe DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -743,51 +764,115 @@ model EvenementMission {
 
 // ---------------------------------------------------------------- donnees publiques
 
-/// Offre d'interim collectee sur une source publique, apres nettoyage.
+/// Cycle de vie d'une offre collectee.
 ///
-/// On conserve la ligne nettoyee plutot qu'un simple agregat : le barometre se
-/// recalcule sans rappeler l'API, et surtout le nettoyage reste auditable. Le
-/// libelle de salaire d'origine est garde a cote de la valeur normalisee, c'est
-/// la seule facon de verifier une conversion qui parait fausse.
+/// La licence de reutilisation France Travail impose qu'une offre retiree chez
+/// la source disparaisse aussi chez le reutilisateur. On ne supprime pas la
+/// ligne pour autant : le barometre porte sur une fenetre glissante de trente a
+/// quatre-vingt-dix jours et doit continuer a voir les offres passees. C'est
+/// l'affichage public qui filtre sur ACTIVE.
+enum StatutOffreCollectee {
+  ACTIVE
+  EXPIREE
+}
+
+/// Offre d'interim collectee sur une source publique.
+///
+/// Une seule table pour deux lectures. L'affichage republie l'annonce telle
+/// quelle — la licence interdit de la denaturer, donc `intitule` et
+/// `description` sont ceux de l'employeur. Le barometre lit les valeurs
+/// derivees, `intituleNormalise`, `tauxHoraire` et `empreinte`, calculees a
+/// cote sans jamais ecraser l'original. Le libelle de salaire d'origine reste
+/// garde a cote de la valeur normalisee : c'est la seule facon de verifier une
+/// conversion qui parait fausse.
+///
+/// Ce que cette table ne contient pas, et ne doit jamais contenir : les
+/// coordonnees du recruteur (`contact` cote API). Elles sont explicitement
+/// exclues du perimetre de reutilisation.
 model OffreCollectee {
   /// Identifiant de l'offre chez la source : il porte l'idempotence de l'import.
   id     String @id
   source String @default("FRANCE_TRAVAIL")
 
-  romeCode    String
-  romeLibelle String
+  statut StatutOffreCollectee @default(ACTIVE)
 
-  /// Tel que saisi par l'employeur ("Aide soignant (F/H)").
+  /// Null quand la source ne rattache pas l'offre au referentiel. L'annonce
+  /// reste publiable, elle sort seulement des agregats par metier.
+  romeCode    String?
+  romeLibelle String?
+
+  /// Tel que saisi par l'employeur ("AIDE-SOIGNANT(E) - Interim (H/F)").
+  /// C'est ce qui s'affiche, sans retouche.
   intitule String
   /// Ramene a l'appellation du referentiel ROME, pour pouvoir regrouper.
+  /// Usage statistique uniquement : ne jamais l'afficher a la place du titre.
   intituleNormalise String
-  entreprise        String?
+  /// Le corps de l'annonce. La licence demande de restituer le contenu mis a
+  /// disposition, pas un resume.
+  description String?
 
-  departement String
-  commune     String
-  codePostal  String
+  entreprise            String?
+  entrepriseDescription String?
+
+  /// Null quand le lieu n'est pas situable ("France entiere").
+  departement String?
+  /// Nom lisible, tire du libelle du lieu : "74 - Thenes" donne "Thenes".
+  communeNom  String?
+  /// Code INSEE, que l'API range sous `lieuTravail.commune`. Ce n'est pas un
+  /// nom de ville, et l'afficher tel quel montrerait "74280" a l'utilisateur.
+  communeCode String?
+  codePostal  String?
   latitude    Float?
   longitude   Float?
 
   /// Ramene a l'heure, quelle que soit la base annoncee. Null quand le libelle
   /// n'est pas exploitable : mieux vaut une absence qu'un chiffre invente.
   tauxHoraire  Decimal? @db.Decimal(8, 4)
-  /// Libelle d'origine, conserve pour l'audit de la conversion.
+  /// Libelle d'origine, conserve pour l'audit de la conversion et pour
+  /// l'affichage : c'est lui que lit le visiteur, pas la valeur convertie.
   salaireLibelle String?
 
-  experienceExigee Boolean @default(false)
-  nombrePostes     Int     @default(1)
+  experienceExigee       Boolean @default(false)
+  experienceLibelle      String?
+  qualificationLibelle   String?
+  secteurActiviteLibelle String?
+  /// Listes telles que la source les structure. Json plutot que des tables
+  /// filles : rien ne les interroge, elles ne servent qu'a etre reaffichees.
+  competences        Json @default("[]")
+  horaires           Json @default("[]")
+  conditionsExercice Json @default("[]")
+
+  dureeTravailLibelle String?
+  natureContrat       String?
+  typeContrat         String?
+  typeContratLibelle  String?
+  alternance          Boolean @default(false)
+  nombrePostes        Int     @default(1)
 
   publieeLe   DateTime
-  collecteeLe DateTime @default(now())
+  /// Date de derniere modification chez la source. La licence impose de
+  /// l'afficher au visiteur.
+  actualiseeLe DateTime?
+  /// Lien vers l'annonce d'origine. Exige par la licence, et c'est aussi par la
+  /// que le candidat postule : la plateforme ne recoit pas ces candidatures.
+  urlOrigine   String?
+
+  collecteeLe DateTime  @default(now())
+  /// Dernier balayage complet ou l'offre etait encore presente chez la source.
+  /// C'est la comparaison avec la date du balayage qui declenche l'expiration.
+  vueLe       DateTime  @default(now())
+  expireeLe   DateTime?
 
   /// Signature employeur + intitule + commune : les agences republient la meme
-  /// offre sous plusieurs identifiants, et les compter deux fois gonflerait la
-  /// tension mesuree.
+  /// offre sous plusieurs identifiants. Les lignes sont toutes conservees — la
+  /// licence demande de restituer le catalogue — et c'est le barometre qui
+  /// dedoublonne sur cette colonne au moment du calcul.
   empreinte String
 
   @@index([romeCode, departement])
   @@index([publieeLe])
   @@index([empreinte])
+  @@index([statut, publieeLe])
+  @@index([source, statut])
   @@map("offre_collectee")
 }

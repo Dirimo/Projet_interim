@@ -30,7 +30,7 @@ Le projet est un **POC de onze jours**. Quatre jalons sur cinq sont entamés.
 | J7–J9 — Tableau de bord, vitrine, conformité | Tableau de bord candidat, pages publiques, n8n, RGAA / RGESN / RGPD                                       | **Partiel** — voir ci-dessous |
 | J10–J11 — Tests, livrables, soutenance       | Couverture transmise, étude de marché, chiffrage réel, pitch                                              | À faire · 4 j·dev             |
 
-**324 tests au vert** : 292 sur l'API, 32 sur les règles partagées. Le front n'en a aucun.
+**348 tests au vert** : 316 sur l'API, 32 sur les règles partagées. Le front n'en a aucun.
 
 Du jalon J7–J9 sont livrés le **tableau de bord candidat**, les **huit pages vitrine** (accueil,
 fonctionnement, à propos, FAQ, contact, mentions légales, conditions d'utilisation, politique de
@@ -49,10 +49,11 @@ schéma et **aucun service ne les lit** — zéro occurrence dans `backend/src`.
 et les relevés d'heures annoncés en tête de ce document sont donc une intention du modèle de
 données, pas une fonctionnalité.
 
-**Un seul manque bloque encore une mise en ligne**, détaillé dans « Limites connues » :
-**l'identité légale de l'éditeur**, seize champs que seule l'agence détient, dont la garantie
-financière obligatoire pour une entreprise de travail temporaire. Les deux autres — le dépôt de
-pièces justificatives et les conditions d'utilisation — sont levés.
+**Les trois manques qui bloquaient une mise en ligne sont traités** — dépôt de pièces
+justificatives, conditions d'utilisation, identité légale. Le dernier l'est **pour la démonstration
+seulement** : les dix-sept champs légaux portent un jeu de valeurs fictives, signalé par un bandeau
+sur les trois pages. Une mise en ligne réelle exige de les remplacer par les faits de l'agence, dont
+la garantie financière obligatoire pour une entreprise de travail temporaire.
 
 ---
 
@@ -391,6 +392,8 @@ backend/                          API NestJS
       mots-de-passe.ts            Argon2id
     candidats/                    vivier : fiche, qualifications, disponibilités
     clients/                      clients SAAD et lieux d'intervention
+    contact/                      formulaire public de la vitrine, relayé par courriel
+    notifications/                annonce quotidienne des missions correspondantes
     mail/                         sortie courriel, un seul point de sortie
       gabarits.ts                 les messages en clair, texte et HTML
       notifications-compte.service.ts  ce qu'on écrit à quelqu'un sur son compte
@@ -514,6 +517,8 @@ shared/                           @releve/shared — contrat API ↔ front
     document.ts                   types de pièces, formats admis, plafond de taille
     conservation.ts               durée de conservation, délai de réponse, décision
     conditions.ts                 version des conditions générales en ligne
+    contact.ts                    sujets figés, bornes de saisie, adresse de l'agence
+    notifications.ts              réglage des courriels de service, forme d'une mission annoncée
     tension.ts                    baromètre et suggestion de taux
     pagination.ts
   test/                           32 tests unitaires des règles partagées
@@ -721,6 +726,8 @@ Base : `http://localhost:3001/api`. Toutes les routes sauf mention contraire exi
 | `GET`   | `/auth/moi`                        | authentifié                                    |
 | `GET`   | `/auth/mon-espace`                 | authentifié — vue selon le profil              |
 | `POST`  | `/auth/mot-de-passe`               | authentifié — changement par l'intéressé       |
+| `GET`   | `/auth/notifications`              | authentifié — réglage des courriels de service |
+| `PUT`   | `/auth/notifications`              | authentifié — activer ou couper                |
 | `GET`   | `/sante`                           | public                                         |
 
 ### Candidats
@@ -848,6 +855,31 @@ Le jeton est à usage unique, borné au délai de réponse, émis pour une adres
 elle a changé depuis. Le `GET` **ne le consomme pas** — un client de messagerie qui précharge les
 liens brûlerait sinon la décision de quelqu'un qui n'a encore rien lu.
 
+### Contact
+
+| Méthode | Route      | Accès  |
+| ------- | ---------- | ------ |
+| `POST`  | `/contact` | public |
+
+Le formulaire de la vitrine envoie vraiment : l'API relaie le message à la boîte de l'agence
+(`CONTACT_EMAIL`, sinon l'adresse déclarée dans `@releve/shared`). Il ouvrait jusqu'ici le logiciel
+de messagerie avec un `mailto:` pré-rempli, faute de route — honnête tant que rien n'existait côté
+serveur, mais sans effet chez qui n'a pas de client de messagerie configuré : un bouton qui ne
+répond pas, sans message d'erreur.
+
+**Rien n'est enregistré en base.** Un message de contact n'a pas de cycle de vie, personne ne le
+relit dans l'application, et le conserver ferait une seconde copie d'adresses à protéger pour rien.
+
+Une route ouverte qui fait partir un courriel se transforme vite en robinet à spam, d'où trois
+barrières : **trois messages par quart d'heure** et par adresse, des **bornes de longueur** sur
+chaque champ dans le schéma partagé, et un **piège à robots** — un champ hors écran qu'une personne
+ne remplit jamais. Quand il est rempli, la route répond `202` et n'envoie rien : refuser
+explicitement apprendrait à celui qui sonde qu'il existe un champ à laisser vide.
+
+L'adresse saisie ne devient **jamais l'expéditeur** : elle part en `Reply-To`. L'usurper ferait
+rejeter le message par n'importe quel relais qui vérifie SPF, et ouvrirait le site à l'envoi de
+courrier au nom de n'importe qui.
+
 ### Tension du marché
 
 | Méthode | Route                 | Accès       |
@@ -869,7 +901,7 @@ liens brûlerait sinon la décision de quelqu'un qui n'a encore rien lu.
 | `pnpm dev`                               | Contracts compilés, puis API et front en parallèle  |
 | `pnpm dev:backend` / `pnpm dev:frontend` | Un seul des deux                                    |
 | `pnpm build`                             | Contracts, puis API, puis front                     |
-| `pnpm test`                              | Règles partagées (32) puis intégration API (292)    |
+| `pnpm test`                              | Règles partagées (32) puis intégration API (316)    |
 | `pnpm test:shared`                       | Règles partagées seules, sans base                  |
 | `pnpm test:backend`                      | Intégration API seule                               |
 | `pnpm typecheck`                         | TypeScript sur les trois paquets, tests compris     |
@@ -882,18 +914,19 @@ liens brûlerait sinon la décision de quelqu'un qui n'a encore rien lu.
 
 ### Commandes d'exploitation
 
-Elles tournent hors HTTP, sur le même contexte Nest que l'API — mêmes services, mêmes règles. Les
-deux premières sont **à appeler une fois par jour par l'ordonnanceur**, dans cet ordre et jamais
-fondues en une seule : la relance du matin effacerait sinon ce qu'elle vient d'annoncer. `--sec`
-montre ce qui se passerait sans rien écrire.
+Elles tournent hors HTTP, sur le même contexte Nest que l'API — mêmes services, mêmes règles.
+**Trois sont à appeler une fois par jour par l'ordonnanceur** : les deux de conservation, dans cet
+ordre et jamais fondues en une seule (la relance du matin effacerait sinon ce qu'elle vient
+d'annoncer), et l'annonce des missions. `--sec` montre ce qui se passerait sans rien écrire.
 
-| Commande                         | Effet                                                               |
-| -------------------------------- | ------------------------------------------------------------------- |
-| `pnpm cli conservation:relancer` | Écrit aux candidats dont des pièces atteignent un an                |
-| `pnpm cli conservation:purger`   | Efface les pièces restées sans réponse 30 jours après la relance    |
-| `pnpm cli purger:documents`      | Effacement ciblé par type et par âge, hors du cycle de conservation |
-| `pnpm cli geocoder`              | Situe les fiches restées sans coordonnées                           |
-| `pnpm cli importer:offres`       | Collecte des offres France Travail (voir « Données publiques »)     |
+| Commande                         | Effet                                                                       |
+| -------------------------------- | --------------------------------------------------------------------------- |
+| `pnpm cli conservation:relancer` | Écrit aux candidats dont des pièces atteignent un an                        |
+| `pnpm cli conservation:purger`   | Efface les pièces restées sans réponse 30 jours après la relance            |
+| `pnpm cli notifier:missions`     | Annonce à chaque candidat actif les missions publiées qui lui correspondent |
+| `pnpm cli purger:documents`      | Effacement ciblé par type et par âge, hors du cycle de conservation         |
+| `pnpm cli geocoder`              | Situe les fiches restées sans coordonnées                                   |
+| `pnpm cli importer:offres`       | Collecte des offres France Travail (voir « Données publiques »)             |
 
 ---
 
@@ -931,8 +964,9 @@ d'identité et diplôme compris : le code ne branche nulle part sur le type de p
 échéance. Tout est détaillé dans
 [`docs/conservation-documents.md`](docs/conservation-documents.md).
 
-**Aucune notification métier.** Les deux seuls courriels envoyés concernent le compte lui-même —
-confirmation d'adresse et alerte de changement de mot de passe. Côté métier, un candidat retenu ne
+**Les notifications métier s'arrêtent à la candidature.** Le candidat est averti quand son dossier
+est validé, et une fois par jour des missions publiées qui lui correspondent
+(`pnpm cli notifier:missions`). En revanche, un candidat retenu ne
 l'apprend qu'en ouvrant son suivi, un établissement qu'en ouvrant son accueil. La sortie courriel
 existe (`backend/src/mail/`), il reste à y brancher les événements — c'est ce que les
 automatisations n8n du jalon suivant doivent couvrir.
@@ -960,22 +994,33 @@ rapport de couverture est un livrable attendu.
 
 **Les trois textes juridiques sont des brouillons de structure.** Mentions légales, conditions
 d'utilisation et politique de confidentialité existent et sont reliées au pied de page. Elles disent
-ce que le code fait vraiment, et affichent « À compléter » là où seule l'agence détient le fait —
-seize champs sur dix-sept, dont la garantie financière obligatoire pour une entreprise de travail
-temporaire. Aucune n'a été relue par un professionnel du droit, et les trois sont en
-`noindex`. **L'inscription fait cocher « j'accepte les conditions générales »**, et enregistre la
+ce que le code fait vraiment. Les dix-sept champs d'identification sont renseignés par un **jeu de
+démonstration** : raison sociale inventée, SIRET et TVA réduits à des zéros — clé de contrôle
+fausse, donc aucun rattachement possible à une entreprise existante — et organismes explicitement
+fictifs. Un bandeau le dit en tête des trois pages, qui restent en `noindex`. Aucune n'a été relue
+par un professionnel du droit. **L'inscription fait cocher « j'accepte les conditions générales »**, et enregistre la
 date avec la version acceptée (`conditionsAccepteesLe`, `conditionsVersion`) : accepter un texte,
 c'est accepter celui-là, et une révision ultérieure ne peut pas se prévaloir d'un consentement donné
 à la précédente. La connexion, elle, ne fait toujours rien accepter — on n'accepte rien en se
 connectant.
 
-**L'identité légale de l'éditeur manque. C'est le seul point qui bloque encore une mise en ligne.**
-Les trois pages légales portent leurs rubriques, mais seize champs sur dix-sept affichent
-« À compléter » : raison sociale, SIRET, directeur de la publication, hébergeur, durée de
-conservation du dossier candidat, et la **garantie financière** obligatoire pour une entreprise de
-travail temporaire. Seule l'adresse de contact est renseignée. Ces faits ne peuvent venir que de
-l'agence — en inventer un seul exposerait l'éditeur ; les pages restent en `noindex` tant qu'elles
-sont incomplètes. Un seul fichier à éditer : `frontend/app/data/legal.ts`.
+**L'identité légale de l'éditeur est fictive. C'est ce qui sépare encore la démonstration d'une mise
+en ligne.** Les dix-sept champs — raison sociale, SIRET, directeur de la publication, hébergeur,
+durée de conservation du dossier candidat, **garantie financière** — sont remplis par un jeu de
+démonstration, pas par des faits.
+
+Le mécanisme est aussi simple que possible : **un seul fichier**,
+[`frontend/app/data/legal.ts`](frontend/app/data/legal.ts), lu par les trois pages. Passer en réel,
+c'est remplacer chaque valeur puis mettre `MENTIONS_DEMONSTRATION` à `false` — le bandeau disparaît
+alors des trois pages, et rien d'autre ne dépend de ce drapeau.
+
+Ce drapeau n'est **pas déduit du remplissage des champs** : « toutes remplies » ne veut pas dire
+« toutes vraies », et une déduction ferait disparaître l'avertissement à l'instant précis où l'on
+saisit la dernière valeur inventée. Le passage à `false` est un geste explicite, qui se relit dans
+l'historique.
+
+Trois valeurs échappent à la fiction et décrivent le code : la durée de conservation des pièces, la
+liste des sous-traitants, et l'absence de transfert hors Union européenne.
 
 **Les missions ne sont pas visibles sans compte.** `GET /missions` exige une session. Un visiteur ne
 peut donc pas parcourir les offres, alors que c'est le premier levier d'acquisition d'une agence.
@@ -985,21 +1030,52 @@ route anonyme aux champs réduits — sans adresse exacte ni coordonnées de con
 **Le contenu éditorial de la vitrine est incomplet.** Les chiffres de l'en-tête d'accueil et le
 téléphone de la page contact attendent les valeurs réelles, dans `frontend/app/data/vitrine.ts`. Le
 bloc de chiffres reste masqué tant qu'il est vide : une absence ne trompe personne, un chiffre
-inventé si. Le formulaire de contact compose un courriel prérempli, faute de route d'envoi.
+inventé si. Le formulaire de contact, lui, envoie désormais pour de bon — voir « Contact » dans la
+section API.
 
-**Aucune préférence de notification.** Le canvas propose un interrupteur « Notifications par
-e-mail » ; le modèle `Utilisateur` ne porte rien de tel. L'interrupteur n'a pas été repris plutôt
-que d'en poser un qui ne commanderait rien.
+**Les notifications ne couvrent que deux moments.** Le candidat est averti quand son dossier est
+validé, puis une fois par jour des missions publiées qui lui correspondent. Rien ne l'avertit
+lorsqu'un établissement retient sa candidature, ni lorsqu'une mission à laquelle il a postulé est
+annulée — ces deux-là restent à écrire, et ce sont les plus attendues une fois la boucle fermée.
+
+L'interrupteur « Notifications par e-mail » du canvas existe désormais dans « Mon compte » et
+commande quelque chose de réel (`Utilisateur.notificationsEmail`). Il ne coupe que les courriels de
+service : confirmation d'adresse, réinitialisation et fin de conservation des pièces partent
+toujours — les taire parce qu'une case est décochée ferait effacer des documents sans prévenir.
 
 ### Piège de développement
 
-Nuxt pré-charge `@releve/shared` au démarrage. Après toute modification du paquet partagé,
-**redémarrer le serveur Nuxt** : sinon une page tombe en 500 sur le symbole nouvellement ajouté.
+`@releve/shared` est compilé en CommonJS et lié par le workspace. Vite doit donc le pré-bundler,
+et il met ce pré-bundle en cache — dans `frontend/node_modules/.cache/vite`, pas dans
+`node_modules/.vite`.
 
-Le cas le plus vicieux — `doesn't provide an export named` sur un symbole pourtant bien exporté —
-vient de l'interop CommonJS de Vite sur un paquet lié par le workspace. Il est désormais réglé à
-la source par `vite.optimizeDeps.include` dans `nuxt.config.ts`, qui force le pré-bundling. Si un
-symptôme proche réapparaît, supprimer `frontend/node_modules/.vite` puis relancer.
+Deux pièges en découlent, réglés tous les deux dans `nuxt.config.ts` par
+`vite.optimizeDeps = { include: ['@releve/shared'], force: true }` :
+
+- sans `include`, Vite traite le paquet comme du source et rate ses exports nommés —
+  `doesn't provide an export named` sur un symbole pourtant bien exporté ;
+- sans `force`, **un fichier ajouté au paquet partagé n'invalide rien.** Vite calcule l'empreinte de
+  son cache sur le fichier de verrouillage et la configuration, pas sur le contenu d'un paquet lié.
+  Le navigateur reçoit alors un pré-bundle d'avant, où le nouveau symbole n'existe pas.
+
+Le second est le plus coûteux à diagnostiquer, parce qu'il **ne se voit pas côté serveur** : Node
+charge le vrai `dist`, la page se rend en 200 et paraît normale. C'est l'hydratation qui échoue,
+sur un `X is undefined`, et l'écran reste là, inerte — un bouton qui ne répond pas, sans message
+d'erreur. Vérifier une page par son HTML rendu ne suffit donc pas ; il faut la charger dans un
+navigateur, ou lire les erreurs que le serveur de développement y remonte.
+
+**Après toute modification du paquet partagé : reconstruire, puis redémarrer le serveur Nuxt.** Les
+deux, dans cet ordre. Le serveur charge `@releve/shared` une fois au démarrage — pour le rendu
+serveur comme pour le navigateur — et ne le relit pas ensuite. Et un redémarrage seul ne suffisait
+pas non plus tant que `force` n'était pas posé : le cache est sur disque et survit à l'arrêt du
+processus.
+
+```bash
+pnpm --filter @releve/shared build   # puis relancer pnpm dev
+```
+
+`force` reconstruit les dépendances à chaque démarrage, pour quelques centaines de millisecondes.
+Sans effet sur le `build` de production, qui repart toujours de zéro.
 
 ---
 

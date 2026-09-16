@@ -1,9 +1,21 @@
 /**
- * Nettoyage des offres publiques.
+ * Preparation des offres publiques.
  *
  * Tout ce fichier est volontairement sans dependance : ni base, ni reseau, ni
- * Nest. Ce sont les regles metier du nettoyage, et elles doivent pouvoir se
- * tester sur une chaine de caracteres, pas sur un jeu d'integration.
+ * Nest. Ce sont les regles metier de la preparation, et elles doivent pouvoir
+ * se tester sur une chaine de caracteres, pas sur un jeu d'integration.
+ *
+ * Deux lectures cohabitent ici, et il faut les garder distinctes.
+ *
+ * L'affichage republie l'annonce telle que l'employeur l'a ecrite : la licence
+ * de reutilisation France Travail impose de restituer le contenu sans le
+ * denaturer, donc rien n'est reformule et rien n'est retire — sauf les
+ * coordonnees du recruteur, explicitement exclues de la reutilisation.
+ *
+ * La statistique, elle, a besoin de regrouper : l'intitule ramene au
+ * referentiel ROME, le salaire converti en taux horaire, et une empreinte qui
+ * reconnait les republications. Ces valeurs derivees sont calculees ici et
+ * portees par la meme ligne, mais elles ne remplacent jamais l'original.
  */
 
 /** Heures mensuelles de reference pour un temps plein (35 h hebdomadaires). */
@@ -20,13 +32,21 @@ const MOIS_PAR_AN = 12;
 const TAUX_HORAIRE_MIN = 8;
 const TAUX_HORAIRE_MAX = 120;
 
+/**
+ * Offre telle que l'API la renvoie.
+ *
+ * Le champ `contact` existe dans la reponse et n'est volontairement pas declare
+ * ici : la licence de reutilisation exclut les donnees de contact, et un champ
+ * absent du type est un champ qu'on ne peut pas recopier par distraction.
+ */
 export interface OffreBrute {
   id: string;
   intitule?: string;
+  description?: string;
   appellationlibelle?: string;
   romeCode?: string;
   romeLibelle?: string;
-  entreprise?: { nom?: string };
+  entreprise?: { nom?: string; description?: string };
   lieuTravail?: {
     libelle?: string;
     commune?: string;
@@ -36,28 +56,87 @@ export interface OffreBrute {
   };
   salaire?: { libelle?: string };
   experienceExige?: string;
+  experienceLibelle?: string;
+  qualificationLibelle?: string;
+  secteurActiviteLibelle?: string;
+  competences?: { code?: string; libelle?: string; exigence?: string }[];
+  contexteTravail?: { horaires?: string[]; conditionsExercice?: string[] };
+  dureeTravailLibelle?: string;
+  dureeTravailLibelleConverti?: string;
+  natureContrat?: string;
+  typeContratLibelle?: string;
+  alternance?: boolean;
   nombrePostes?: number;
   dateCreation?: string;
+  dateActualisation?: string;
   typeContrat?: string;
+  origineOffre?: { origine?: string; urlOrigine?: string };
 }
 
-export interface OffreNettoyee {
+/**
+ * Offre prete a etre enregistree.
+ *
+ * Une seule ligne porte les deux usages. L'affichage lit `intitule`,
+ * `description` et les libelles d'origine ; la statistique lit
+ * `intituleNormalise`, `tauxHoraire` et `empreinte`. Deux tables auraient
+ * demande de garder deux copies synchronisees de la meme annonce, pour le seul
+ * benefice de separer deux lectures qui ne se genent pas.
+ */
+export interface OffrePreparee {
   id: string;
-  romeCode: string;
-  romeLibelle: string;
+  romeCode: string | null;
+  romeLibelle: string | null;
+
+  /** Tel que l'employeur l'a ecrit. C'est ce qui s'affiche. */
   intitule: string;
+  /** Ramene a l'appellation du referentiel, pour regrouper. Jamais affiche. */
   intituleNormalise: string;
+  description: string | null;
+
   entreprise: string | null;
-  departement: string;
-  commune: string;
-  codePostal: string;
+  entrepriseDescription: string | null;
+
+  /**
+   * Null quand le lieu n'est pas situable ("France entiere", et quelques
+   * offres sans code postal). L'annonce reste publiable — elle sort seulement
+   * des agregats departementaux.
+   */
+  departement: string | null;
+  /** Nom lisible, tire du libelle du lieu : "74 - Thenes" donne "Thenes". */
+  communeNom: string | null;
+  /** Code INSEE, que l'API range sous `lieuTravail.commune`. */
+  communeCode: string | null;
+  codePostal: string | null;
   latitude: number | null;
   longitude: number | null;
+
   tauxHoraire: number | null;
   salaireLibelle: string | null;
+
   experienceExigee: boolean;
+  experienceLibelle: string | null;
+  qualificationLibelle: string | null;
+  secteurActiviteLibelle: string | null;
+  competences: { code: string | null; libelle: string; exigence: string | null }[];
+  horaires: string[];
+  conditionsExercice: string[];
+
+  dureeTravailLibelle: string | null;
+  natureContrat: string | null;
+  typeContrat: string | null;
+  typeContratLibelle: string | null;
+  alternance: boolean;
   nombrePostes: number;
+
   publieeLe: Date;
+  /**
+   * Date de derniere modification chez la source. La licence impose de
+   * l'afficher, et elle sert aussi a ne pas reecrire une ligne inchangee.
+   */
+  actualiseeLe: Date | null;
+  /** Lien vers l'annonce d'origine, exige par la licence. */
+  urlOrigine: string | null;
+
   empreinte: string;
 }
 
@@ -181,6 +260,24 @@ export function departementDepuisLieu(lieu: OffreBrute['lieuTravail']): string |
 }
 
 /**
+ * Nom lisible de la commune.
+ *
+ * Piege du format : `lieuTravail.commune` contient le code INSEE ("74280"), pas
+ * le nom. Le nom n'existe que dans le libelle, derriere le numero de
+ * departement : "74 - Thenes". Afficher le champ `commune` tel quel mettrait un
+ * code a la place d'une ville sur chaque annonce.
+ *
+ * Certains libelles n'ont pas de prefixe departemental ("France entiere") : il
+ * n'y a alors pas de commune a en tirer, et c'est bien null qu'il faut rendre.
+ */
+export function communeDepuisLieu(lieu: OffreBrute['lieuTravail']): string | null {
+  const libelle = (lieu?.libelle ?? '').trim();
+  const apresNumero = /^\s*(?:\d{2,3}|2[AB])\s*-\s*(.+)$/.exec(libelle);
+
+  return apresNumero ? apresNumero[1]!.trim() || null : null;
+}
+
+/**
  * Ramene l'intitule a l'appellation du referentiel ROME.
  *
  * Les employeurs ecrivent "Aide soignant (F/H)", "AIDE SOIGNANT H/F - URGENT",
@@ -214,10 +311,15 @@ export function normaliserIntitule(offre: OffreBrute): string {
 export function empreinteOffre(offre: {
   intituleNormalise: string;
   entreprise: string | null;
-  commune: string;
-  romeCode: string;
+  commune: string | null;
+  romeCode: string | null;
 }): string {
-  return [offre.romeCode, offre.intituleNormalise, offre.entreprise ?? '—', offre.commune]
+  return [
+    offre.romeCode ?? '—',
+    offre.intituleNormalise,
+    offre.entreprise ?? '—',
+    offre.commune ?? '—',
+  ]
     .map((partie) =>
       partie
         .toLowerCase()
@@ -229,99 +331,151 @@ export function empreinteOffre(offre: {
     .join('|');
 }
 
+/** Texte utile, ou null : une chaine vide en base ne vaut pas mieux qu'un trou. */
+function texte(valeur: string | null | undefined): string | null {
+  return valeur?.trim() || null;
+}
+
 /**
- * Nettoie une offre brute. Renvoie null quand il manque de quoi la situer :
- * une offre sans metier ni departement ne sert a aucun calcul, et la garder
- * reviendrait a polluer le barometre pour rien.
+ * Prepare une offre brute pour l'enregistrement.
+ *
+ * Ne renvoie null que si l'annonce est inexploitable telle quelle : sans
+ * identifiant, sans titre ou sans date de publication, il n'y a ni quoi
+ * afficher ni quoi mettre a jour.
+ *
+ * Tout le reste est conserve, y compris ce qui ne sert pas au barometre. Une
+ * offre "France entiere" n'a pas de departement : elle sort des agregats
+ * departementaux, elle ne sort pas du site. La version precedente l'ecartait,
+ * ce qui etait juste pour une statistique et faux pour une republication.
  */
-export function nettoyerOffre(brute: OffreBrute): OffreNettoyee | null {
-  const romeCode = brute.romeCode?.trim();
-  const departement = departementDepuisLieu(brute.lieuTravail);
-  const commune = brute.lieuTravail?.commune?.trim();
+export function preparerOffre(brute: OffreBrute): OffrePreparee | null {
   const publiee = brute.dateCreation ? new Date(brute.dateCreation) : null;
 
-  if (!romeCode || !departement || !commune || !publiee || Number.isNaN(publiee.getTime())) {
-    return null;
-  }
-
+  // L'appellation du referentiel sert de titre de repli quand l'employeur n'en
+  // a pas saisi. Ce n'est pas denaturer l'annonce : il n'y a rien a respecter
+  // quand il n'y a rien d'ecrit, et une offre sans aucun titre serait
+  // inaffichable.
   const intituleNormalise = normaliserIntitule(brute);
+  const intitule = texte(brute.intitule) ?? intituleNormalise;
 
-  if (!intituleNormalise) {
+  if (!brute.id || !intitule || !publiee || Number.isNaN(publiee.getTime())) {
     return null;
   }
 
-  const entreprise = brute.entreprise?.nom?.trim() || null;
+  const actualisee = brute.dateActualisation ? new Date(brute.dateActualisation) : null;
+  const romeCode = texte(brute.romeCode);
+  const communeNom = communeDepuisLieu(brute.lieuTravail);
+  const entreprise = texte(brute.entreprise?.nom);
 
   return {
     id: brute.id,
     romeCode,
-    romeLibelle: brute.romeLibelle?.trim() ?? intituleNormalise,
-    intitule: (brute.intitule ?? '').trim() || intituleNormalise,
-    intituleNormalise,
+    romeLibelle: texte(brute.romeLibelle),
+
+    intitule,
+    intituleNormalise: intituleNormalise || intitule,
+    description: texte(brute.description),
+
     entreprise,
-    departement,
-    commune,
-    codePostal: (brute.lieuTravail?.codePostal ?? '').trim(),
+    entrepriseDescription: texte(brute.entreprise?.description),
+
+    departement: departementDepuisLieu(brute.lieuTravail),
+    communeNom,
+    communeCode: texte(brute.lieuTravail?.commune),
+    codePostal: texte(brute.lieuTravail?.codePostal),
     latitude: brute.lieuTravail?.latitude ?? null,
     longitude: brute.lieuTravail?.longitude ?? null,
+
     tauxHoraire: tauxHoraireDepuisLibelle(brute.salaire?.libelle),
-    salaireLibelle: brute.salaire?.libelle?.trim() || null,
+    salaireLibelle: texte(brute.salaire?.libelle),
+
     // "D" signifie debutant accepte ; "E" et "S" exigent de l'experience.
     experienceExigee: ['E', 'S'].includes((brute.experienceExige ?? '').toUpperCase()),
+    experienceLibelle: texte(brute.experienceLibelle),
+    qualificationLibelle: texte(brute.qualificationLibelle),
+    secteurActiviteLibelle: texte(brute.secteurActiviteLibelle),
+    competences: (brute.competences ?? [])
+      .filter((competence) => texte(competence.libelle))
+      .map((competence) => ({
+        code: texte(competence.code),
+        libelle: competence.libelle!.trim(),
+        exigence: texte(competence.exigence),
+      })),
+    horaires: (brute.contexteTravail?.horaires ?? []).map((ligne) => ligne.trim()).filter(Boolean),
+    conditionsExercice: (brute.contexteTravail?.conditionsExercice ?? [])
+      .map((ligne) => ligne.trim())
+      .filter(Boolean),
+
+    dureeTravailLibelle: texte(brute.dureeTravailLibelle),
+    natureContrat: texte(brute.natureContrat),
+    typeContrat: texte(brute.typeContrat),
+    typeContratLibelle: texte(brute.typeContratLibelle),
+    alternance: brute.alternance ?? false,
     nombrePostes: Math.max(1, brute.nombrePostes ?? 1),
+
     publieeLe: publiee,
-    empreinte: empreinteOffre({ intituleNormalise, entreprise, commune, romeCode }),
+    actualiseeLe: actualisee && !Number.isNaN(actualisee.getTime()) ? actualisee : null,
+    urlOrigine: texte(brute.origineOffre?.urlOrigine),
+
+    empreinte: empreinteOffre({ intituleNormalise, entreprise, commune: communeNom, romeCode }),
   };
 }
 
 export interface ResultatNettoyage {
-  offres: OffreNettoyee[];
+  offres: OffrePreparee[];
   recues: number;
+  /** Inexploitables : sans identifiant, sans titre ou sans date. */
   ecartees: number;
+  /** Republications reperees. Comptees, plus supprimees — voir ci-dessous. */
   doublons: number;
+  /** Retenues mais hors agregats departementaux : lieu non situable. */
+  sansDepartement: number;
   sansSalaire: number;
 }
 
 /**
- * Nettoie un lot et retire les republications. La premiere occurrence gagne :
- * a empreinte egale, c'est la plus anciennement publiee qui compte, pour ne pas
- * faire glisser la date de tension a chaque republication.
+ * Prepare un lot.
+ *
+ * Les republications ne sont plus retirees, et c'est le changement important.
+ * La licence de reutilisation demande de restituer les offres mises a
+ * disposition : en supprimer une parce qu'une agence concurrente publie la
+ * meme, c'est amputer le catalogue d'annonces qui existent bel et bien.
+ *
+ * Elles restent comptees, parce que le barometre, lui, doit continuer a n'en
+ * voir qu'une — il dedoublonne desormais sur `empreinte` au moment du calcul.
+ * C'est d'ailleurs plus juste qu'avant : le tri par lot ne voyait pas deux
+ * republications arrivees dans deux imports differents, et le barometre les
+ * comptait deux fois.
  */
-export function nettoyerLot(brutes: OffreBrute[]): ResultatNettoyage {
-  const parEmpreinte = new Map<string, OffreNettoyee>();
+export function preparerLot(brutes: OffreBrute[]): ResultatNettoyage {
+  const offres: OffrePreparee[] = [];
+  const empreintesVues = new Set<string>();
   let ecartees = 0;
   let doublons = 0;
 
   for (const brute of brutes) {
-    const offre = nettoyerOffre(brute);
+    const offre = preparerOffre(brute);
 
     if (!offre) {
       ecartees += 1;
       continue;
     }
 
-    const deja = parEmpreinte.get(offre.empreinte);
-
-    if (deja) {
+    if (empreintesVues.has(offre.empreinte)) {
       doublons += 1;
-
-      if (offre.publieeLe < deja.publieeLe) {
-        parEmpreinte.set(offre.empreinte, offre);
-      }
-
-      continue;
+    } else {
+      empreintesVues.add(offre.empreinte);
     }
 
-    parEmpreinte.set(offre.empreinte, offre);
+    offres.push(offre);
   }
-
-  const offres = [...parEmpreinte.values()];
 
   return {
     offres,
     recues: brutes.length,
     ecartees,
     doublons,
+    sansDepartement: offres.filter((offre) => offre.departement === null).length,
     sansSalaire: offres.filter((offre) => offre.tauxHoraire === null).length,
   };
 }

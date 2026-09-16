@@ -21,5 +21,8 @@ export * from './matching';
 export * from './document';
 export * from './conservation';
 export * from './conditions';
+export * from './contact';
+export * from './notifications';
 export * from './profil';
+export * from './offres';
 export * from './tension';

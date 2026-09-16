@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { MOT_DE_PASSE_LONGUEUR_MIN, ROLE_LIBELLES } from '@releve/shared';
+import {
+  MOT_DE_PASSE_LONGUEUR_MIN,
+  ROLE_LIBELLES,
+  type PreferencesNotification,
+} from '@releve/shared';
 
 useHead({ title: 'Mon compte — Relève' });
 
@@ -8,6 +12,39 @@ const { utilisateur, deconnexion } = useSession();
 
 const { contrasteFort, animationsReduites, basculerContraste, basculerAnimations } =
   usePreferencesAffichage();
+
+/**
+ * Le seul reglage des trois qui vive cote serveur.
+ *
+ * Les deux autres sont rendus par le navigateur et suivent l'appareil ; celui-ci
+ * commande ce que l'API envoie, donc il appartient au compte. L'interrupteur
+ * n'affiche jamais l'etat suppose : il attend la reponse et affiche ce que la
+ * base dit, faute de quoi un echec d'ecriture laisserait un bouton allume sur
+ * un reglage eteint.
+ */
+const { data: preferences } = await useAsyncData('mon-compte:notifications', () =>
+  requete<PreferencesNotification>('/auth/notifications').catch(() => null),
+);
+
+const notificationsEmail = computed(() => preferences.value?.notificationsEmail ?? false);
+const bascule = ref(false);
+const erreurNotifications = ref('');
+
+async function basculerNotifications(): Promise<void> {
+  erreurNotifications.value = '';
+  bascule.value = true;
+
+  try {
+    preferences.value = await requete<PreferencesNotification>('/auth/notifications', {
+      method: 'PUT',
+      body: { notificationsEmail: !notificationsEmail.value },
+    });
+  } catch {
+    erreurNotifications.value = 'Réglage non enregistré. Réessayez dans un instant.';
+  } finally {
+    bascule.value = false;
+  }
+}
 
 const ancien = ref('');
 const nouveau = ref('');
@@ -69,12 +106,40 @@ async function sortir(): Promise<void> {
       </div>
     </div>
 
-    <!--
-      Les interrupteurs du canvas. Celui des notifications par e-mail n'est pas
-      repris : aucune preference de ce genre n'existe cote API, et un reglage
-      qui ne commande rien vaut moins qu'un reglage absent. Les deux qui restent
-      sont entierement rendus par le navigateur, donc reels.
-    -->
+    <h2>Notifications</h2>
+
+    <div class="reglages">
+      <div class="reglage">
+        <div class="copie">
+          <p class="libelle">Notifications par e-mail</p>
+          <p class="aide">
+            Validation de votre dossier, et missions publiées qui correspondent à votre profil — un
+            message par jour au plus. Les courriels liés à la sécurité de votre compte et à la
+            conservation de vos pièces partent toujours.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          class="bascule"
+          :class="{ actif: notificationsEmail }"
+          role="switch"
+          :aria-checked="notificationsEmail"
+          aria-label="Notifications par e-mail"
+          :disabled="bascule"
+          @click="basculerNotifications()"
+        >
+          <span class="bouton" />
+        </button>
+      </div>
+    </div>
+
+    <p v-if="erreurNotifications" class="alerte" role="alert">{{ erreurNotifications }}</p>
+
+    <p class="portee">
+      Ce réglage est attaché à votre compte : il vous suit d'un appareil à l'autre.
+    </p>
+
     <h2>Affichage</h2>
 
     <div class="reglages">
@@ -298,6 +363,13 @@ h2 {
 .bascule:focus-visible {
   outline: 2px solid var(--dom);
   outline-offset: 3px;
+}
+
+/* Pendant l'aller-retour avec l'API : l'interrupteur reste sur l'etat
+   enregistre, et se ferme a un second clic qui partirait en sens inverse. */
+.bascule:disabled {
+  opacity: 0.6;
+  cursor: progress;
 }
 
 .bouton {

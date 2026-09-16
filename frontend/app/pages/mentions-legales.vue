@@ -15,9 +15,11 @@ useHead({
     <h1 class="vitrine-titre">Informations légales</h1>
     <p class="vitrine-chapeau">
       Les rubriques ci-dessous sont celles qu'un site d'entreprise de travail temporaire doit
-      publier. Celles marquées « à compléter » attendent les informations de l'agence : elles ne
-      peuvent venir que d'elle, et une valeur inventée exposerait l'éditeur.
+      publier. Elles sont renseignées avec un jeu de démonstration : avant toute mise en ligne,
+      chaque valeur doit être remplacée par le fait réel, qui ne peut venir que de l'agence.
     </p>
+
+    <AppBandeauDemonstration />
 
     <section>
       <h2>Éditeur du site</h2>
@@ -43,8 +45,20 @@ useHead({
       <h2>Propriété intellectuelle</h2>
       <p>
         Les contenus de ce site — textes, interface, identité visuelle — appartiennent à l'éditeur,
-        sauf mention contraire. Les données publiques affichées dans le baromètre de tension
-        proviennent de France Travail et restent soumises à leurs conditions de réutilisation.
+        sauf mention contraire.
+      </p>
+      <p>
+        Les offres d'emploi présentées dans la rubrique « Offres du marché », ainsi que les données
+        publiques affichées dans le baromètre de tension, proviennent de France Travail. Elles sont
+        republiées au titre de la licence de réutilisation de la base d'offres d'emploi de France
+        Travail, et restent la propriété de leurs auteurs. Elles sont restituées sans modification
+        de leur contenu, avec leur date de publication et un lien vers l'annonce d'origine, et sont
+        mises à jour au moins une fois par jour. Les coordonnées des recruteurs, exclues du
+        périmètre de réutilisation, ne sont ni collectées ni affichées.
+      </p>
+      <p>
+        Les candidatures à ces offres se font directement auprès de France Travail ou de l'employeur
+        concerné : Relève n'intervient pas dans leur traitement et ne les reçoit pas.
       </p>
     </section>
 

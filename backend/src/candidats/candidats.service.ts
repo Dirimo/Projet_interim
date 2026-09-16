@@ -20,6 +20,7 @@ import type {
   UtilisateurSession,
 } from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsCompteService } from '../mail/notifications-compte.service';
 import { GeocodageService } from '../geocodage/geocodage.service';
 
 const avecQualifications = {
@@ -140,6 +141,7 @@ export class CandidatsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly geocodage: GeocodageService,
+    private readonly notifications: NotificationsCompteService,
   ) {}
 
   async lister(query: CandidatListQuery, agenceId: string): Promise<PageResultat<CandidatResume>> {
@@ -254,6 +256,7 @@ export class CandidatsService {
       }
     }
 
+    const validation = donnees.statut === 'ACTIF' && candidat.statut !== 'ACTIF';
     const { visiteMedicaleLe, ...reste } = donnees;
 
     const apres = await this.prisma.candidat.update({
@@ -261,6 +264,10 @@ export class CandidatsService {
       data: {
         ...reste,
         ...(visiteMedicaleLe === undefined ? {} : { visiteMedicaleLe: versDate(visiteMedicaleLe) }),
+        // La date de derniere annonce est posee au moment de la validation, et
+        // pas laissee nulle : sinon le premier balayage deroulerait a un nouvel
+        // arrivant tout l'historique des publications, jusqu'a la plus ancienne.
+        ...(validation ? { missionsNotifieesLe: new Date() } : {}),
       },
       select: { adresse: true, codePostal: true, ville: true },
     });
@@ -270,6 +277,13 @@ export class CandidatsService {
     // laisserait une distance mesurable, donc credible, et fausse.
     if (!GeocodageService.memeAdresse(candidat, apres)) {
       await this.geocodage.situer('candidat', id, apres);
+    }
+
+    // Jamais bloquant : le dossier est deja valide quand on arrive ici, et
+    // faire echouer la requete sur une panne de SMTP laisserait le charge de
+    // recrutement persuade que sa validation n'a pas pris.
+    if (validation) {
+      await this.notifications.dossierValide(id);
     }
 
     return this.detail(id, agenceId);

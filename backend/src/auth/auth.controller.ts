@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Put } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
@@ -7,6 +7,7 @@ import {
   motDePasseChangeSchema,
   motDePasseOublieSchema,
   motDePasseReinitialisationSchema,
+  preferencesNotificationSchema,
   rafraichissementSchema,
   verificationConfirmeSchema,
   verificationRenvoiSchema,
@@ -16,6 +17,7 @@ import {
   type MotDePasseChange,
   type MotDePasseOublie,
   type MotDePasseReinitialisation,
+  type PreferencesNotification,
   type Rafraichissement,
   type ReponseConnexion,
   type ReponseInscription,
@@ -208,5 +210,33 @@ export class AuthController {
   @ApiOperation({ summary: 'Fiche rattachee au compte connecte et son etat' })
   monEspace(@UtilisateurCourant() utilisateur: UtilisateurSession): Promise<EspacePersonnel> {
     return this.inscriptions.espace(utilisateur);
+  }
+
+  /**
+   * Reglage des courriels de service — dossier valide, missions
+   * correspondantes.
+   *
+   * Sous `/auth` et non sous `/mon-profil` : le reglage appartient au compte,
+   * pas a la fiche candidat, et un compte d'agence doit pouvoir le couper lui
+   * aussi le jour ou on lui ecrira. Les courriels transactionnels ne
+   * l'ecoutent jamais.
+   */
+  @Get('notifications')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Reglage des courriels de service du compte connecte' })
+  notifications(
+    @UtilisateurCourant() utilisateur: UtilisateurSession,
+  ): Promise<PreferencesNotification> {
+    return this.auth.lireNotifications(utilisateur);
+  }
+
+  @Put('notifications')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Activer ou couper les courriels de service' })
+  changerNotifications(
+    @UtilisateurCourant() utilisateur: UtilisateurSession,
+    @Body(new ZodValidationPipe(preferencesNotificationSchema)) donnees: PreferencesNotification,
+  ): Promise<PreferencesNotification> {
+    return this.auth.changerNotifications(utilisateur, donnees);
   }
 }

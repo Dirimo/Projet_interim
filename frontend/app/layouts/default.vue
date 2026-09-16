@@ -57,12 +57,17 @@ const liens = computed<{ to: string; label: string }[]>(() => {
 });
 
 /**
- * Navigation publique du canvas. Son entree « Missions » n'est pas reprise :
- * `GET /missions` exige une session, il n'existe donc pas de liste publique a
- * ouvrir. C'est « Comment ça marche » qui tient la place.
+ * Navigation publique du canvas.
+ *
+ * L'entree « Missions » du canvas n'est toujours pas reprise : `GET /missions`
+ * exige une session, et les missions de Releve ne se lisent que connecte.
+ * « Offres du marche » est autre chose, et l'intitule doit le dire — ce sont
+ * les annonces publiques republiees depuis France Travail, dont la candidature
+ * se fait chez la source.
  */
 const liensVitrine = [
   { to: '/accueil', label: 'Accueil' },
+  { to: '/offres', label: 'Offres du marché' },
   { to: '/fonctionnement', label: 'Comment ça marche' },
   { to: '/a-propos', label: 'À propos' },
   { to: '/faq', label: 'FAQ' },
@@ -75,6 +80,7 @@ const colonnesPied = [
     titre: 'Candidats',
     liens: [
       { to: '/fonctionnement', label: 'Comment ça marche' },
+      { to: '/offres', label: 'Offres du marché' },
       { to: '/inscription/interimaire', label: 'Créer un compte' },
       { to: '/connexion', label: 'Se connecter' },
     ],

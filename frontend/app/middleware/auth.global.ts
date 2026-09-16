@@ -44,6 +44,27 @@ const PAGES_VITRINE = new Set([
 ]);
 
 /**
+ * Sections vitrine déclarées en préfixe.
+ *
+ * `PAGES_VITRINE` fait des égalités exactes, ce qui ne sait pas couvrir une
+ * page portant un identifiant. Le détail d'une offre republiée en porte un
+ * (`/offres/213SKMR`), et sans cette liste il renverrait vers le formulaire de
+ * connexion — pour une annonce publique, que France Travail affiche par
+ * ailleurs à tout le monde.
+ *
+ * À ne pas confondre avec `/missions`, qui porte les missions de Relève et
+ * reste réservé aux candidats connectés.
+ */
+const SECTIONS_VITRINE = ['/offres'] as const;
+
+function vitrine(chemin: string): boolean {
+  return (
+    PAGES_VITRINE.has(chemin) ||
+    SECTIONS_VITRINE.some((prefixe) => chemin === prefixe || chemin.startsWith(`${prefixe}/`))
+  );
+}
+
+/**
  * Pages communes aux deux profils externes : leur fiche et leur mot de passe.
  * Le reste du site est le back-office de l'agence, et l'API le refuserait de
  * toute facon — autant ne pas afficher un ecran qui se videra.
@@ -95,7 +116,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
   // c'est elle qui decide de la coque — un candidat connecte qui ouvre la FAQ
   // reste dans son espace, avec sa barre laterale, plutot que de se voir
   // proposer de se connecter.
-  if (PAGES_VITRINE.has(to.path)) {
+  if (vitrine(to.path)) {
     return;
   }
 

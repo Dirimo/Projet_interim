@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { ReponseConnexion } from '@releve/shared';
+import { VERIFICATION_EXPIRE_HEURES, type ReponseConnexion } from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { courrielVerification } from '../mail/gabarits';
@@ -28,7 +28,9 @@ export class VerificationEmailService {
   ) {}
 
   private get dureeHeures(): number {
-    return Number(this.config.get<string>('VERIFICATION_EXPIRE_HEURES') ?? 48);
+    return Number(
+      this.config.get<string>('VERIFICATION_EXPIRE_HEURES') ?? VERIFICATION_EXPIRE_HEURES,
+    );
   }
 
   /**
