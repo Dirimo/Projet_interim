@@ -67,6 +67,9 @@ type DureeJeton = NonNullable<NonNullable<JwtModuleOptions['signOptions']>['expi
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
-  exports: [AuthService, SessionsService],
+  // `JetonsUsageUniqueService` sort du module : la conservation des pieces
+  // emet elle aussi un lien a usage unique, et une seconde implementation du
+  // meme mecanisme finirait par ne plus invalider les memes choses.
+  exports: [AuthService, SessionsService, JetonsUsageUniqueService],
 })
 export class AuthModule {}

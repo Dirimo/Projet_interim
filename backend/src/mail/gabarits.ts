@@ -209,3 +209,77 @@ export function courrielReinitialisation(
 
   return { destinataire, sujet: `Releve — ${titre}`, texte, html };
 }
+
+/**
+ * Fin de conservation des pieces justificatives.
+ *
+ * Ce message n'annonce pas une bonne nouvelle : sans reponse, les pieces
+ * seront effacees. Il dit donc, dans cet ordre, ce qui est concerne, ce qui se
+ * passe si la personne ne fait rien, et jusqu'a quand elle peut repondre. Un
+ * seul lien, qui mene a une page ou elle choisit — plutot que deux liens dans
+ * un courriel, ou le clic irreversible se trouverait a deux centimetres de
+ * l'autre.
+ */
+export function courrielConservationDocuments(
+  destinataire: string,
+  prenom: string | null,
+  pieces: string[],
+  lien: string,
+  effacementLe: string,
+): Courriel {
+  const bonjour = prenom ? `Bonjour ${prenom},` : 'Bonjour,';
+  const titre = 'Vos pieces justificatives arrivent a un an';
+
+  const texte = [
+    bonjour,
+    '',
+    "Les pieces suivantes de votre dossier Releve ont ete deposees il y a un an :",
+    '',
+    ...pieces.map((piece) => `  - ${piece}`),
+    '',
+    'Souhaitez-vous que nous les conservions ? Repondez en ouvrant ce lien :',
+    '',
+    lien,
+    '',
+    `Sans reponse de votre part avant le ${effacementLe}, elles seront effacees.`,
+    "Vous pourrez les redeposer a tout moment depuis votre profil ; nous ne gardons rien d'autre de ces fichiers.",
+    '',
+    PIED,
+  ].join('\n');
+
+  const liste = pieces
+    .map(
+      (piece) =>
+        `<li style="margin:0 0 6px">${echapper(piece)}</li>`,
+    )
+    .join('');
+
+  const html = enveloppe(
+    titre,
+    `<p style="margin:0 0 16px;line-height:1.6">${echapper(bonjour)}</p>
+     <p style="margin:0 0 12px;line-height:1.6">
+       Les pieces suivantes de votre dossier Releve ont ete deposees il y a un an&nbsp;:
+     </p>
+     <ul style="margin:0 0 24px;padding-left:20px;line-height:1.6">${liste}</ul>
+     <p style="margin:0 0 24px;line-height:1.6">
+       Souhaitez-vous que nous les conservions&nbsp;?
+     </p>
+     <p style="margin:0 0 24px">
+       <a href="${echapper(lien)}"
+          style="display:inline-block;background:#0f766e;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600">
+         Repondre
+       </a>
+     </p>
+     <p style="margin:0 0 8px;font-size:13px;color:#57534e;line-height:1.6">
+       Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur&nbsp;:<br>
+       <span style="word-break:break-all;color:#0f766e">${echapper(lien)}</span>
+     </p>
+     <p style="margin:24px 0 0;font-size:13px;color:#57534e;line-height:1.6">
+       Sans reponse de votre part avant le ${echapper(effacementLe)}, ces pieces seront
+       effacees. Vous pourrez les redeposer a tout moment depuis votre profil&nbsp;; nous
+       ne gardons rien d'autre de ces fichiers.
+     </p>`,
+  );
+
+  return { destinataire, sujet: `Releve — ${titre}`, texte, html };
+}

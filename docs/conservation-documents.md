@@ -60,25 +60,76 @@ s'exécute pas dans le contexte de l'API.
 
 ---
 
-## Durées de conservation — à arbitrer
+## Durée de conservation : un an, puis on redemande
 
-Aucune purge automatique n'est en place. Les durées ci-dessous sont proposées
-comme point de départ ; la commande `pnpm cli purger:documents` les applique à
-la demande, jamais seule.
+**Règle en vigueur depuis le 16 septembre 2026.** Elle est décidée, implémentée
+et écrite dans la politique de confidentialité — ce n'est plus une proposition.
 
-| Pièce            | Proposition                               | Raison                                                           |
-| ---------------- | ----------------------------------------- | ---------------------------------------------------------------- |
-| Pièce d'identité | **Effacer dès la vérification constatée** | Rien n'oblige à conserver la copie une fois l'identité contrôlée |
-| RIB              | Durée de la relation, puis effacement     | Sert au virement ; sans mission en cours il n'a plus d'objet     |
-| NIR              | Durée de la relation, puis effacement     | Sert à la DPAE et à la paie                                      |
-| Diplômes         | Durée de la relation + 5 ans              | Justifie les qualifications ayant permis un placement            |
-| CV               | 2 ans après le dernier contact            | Durée usuelle admise pour une candidature                        |
+Une pièce déposée est conservée **douze mois** à compter de son dépôt. Redéposer
+une pièce fait repartir ce délai : déposer est un signe de vie du dossier.
 
-**La question la plus lourde est celle de la pièce d'identité.** La conserver
-au-delà du contrôle est difficile à justifier : la vérification peut être
-constatée (`verifieLe`) sans que la copie soit gardée. C'est la première
-décision à prendre avec un conseil juridique, parce qu'elle change ce que le
-produit doit faire, pas seulement sa configuration.
+À l'échéance, la plateforme écrit à la personne, à l'adresse de son compte, et
+lui demande si elle veut qu'on garde ses pièces. Un seul courriel par dossier,
+quel que soit le nombre de pièces échues : cinq messages le même matin donnent à
+la demande un air de panne. Le message porte un lien à usage unique, valable
+trente jours, qui ouvre une page où elle tranche — conserver un an de plus, ou
+effacer tout de suite.
+
+**Sans réponse au bout de trente jours, les pièces sont effacées.** Le silence
+ne vaut pas accord : c'est le point de toute la mécanique. Le compte et le
+dossier, eux, restent ouverts ; la personne peut redéposer quand elle veut.
+
+Les deux valeurs — douze mois, trente jours — sont déclarées une seule fois,
+dans `shared/src/conservation.ts`, et lues par la commande, par le courriel et
+par la page publique. Les changer là les change partout.
+
+### Les deux balayages
+
+Rien ne se déclenche depuis le processus web : une tâche cachée dans l'API
+s'exécuterait autant de fois qu'il y a d'instances, et personne ne saurait quand
+elle a tourné. Ce sont deux commandes, à appeler une fois par jour chacune par
+l'ordonnanceur.
+
+```bash
+# Qui serait relancé, sans rien envoyer
+pnpm cli conservation:relancer --sec
+pnpm cli conservation:relancer
+
+# Ce qui serait effacé faute de réponse, sans rien écrire
+pnpm cli conservation:purger --sec
+pnpm cli conservation:purger
+```
+
+Elles sont volontairement séparées. Fondues en une seule, un ordonnanceur mal
+réglé déclencherait les deux du même mouvement, et la relance du matin
+effacerait ce qu'elle vient d'annoncer.
+
+### La même durée pour les cinq types
+
+**Tranché par l'agence le 16 septembre 2026.** Deux questions restaient
+ouvertes ; la réponse est la même pour les deux : un an, comme le reste.
+
+| Pièce            | Question posée                                                   | Réponse |
+| ---------------- | ---------------------------------------------------------------- | ------- |
+| Pièce d'identité | L'effacer dès `verifieLe` renseigné, plutôt qu'au bout d'un an ? | Non     |
+| Diplômes         | La garder 5 ans quand elle a justifié un placement ?             | Non     |
+
+Conséquence directe : **aucune règle particulière par type dans le code**. Le
+service ne branche nulle part sur `TypeDocument` pour calculer une échéance, et
+c'est voulu. Une durée par pièce serait cinq chemins à tenir à jour, cinq
+occasions de diverger, et un courriel de relance qui devrait expliquer pourquoi
+le RIB part et le diplôme reste.
+
+Deux remarques à garder sous la main si la décision devait être revue :
+
+- La copie de la pièce d'identité est la plus difficile à justifier au-delà du
+  contrôle : la vérification peut être constatée (`verifieLe`) sans que la copie
+  soit gardée. Si un conseil juridique revenait là-dessus, c'est le seul type
+  qui mériterait son propre traitement.
+- À l'inverse, si l'agence doit répondre cinq ans d'un placement, ce n'est pas
+  le diplôme qu'il faut garder mais la **trace** qu'il a été vérifié — et cette
+  trace existe déjà (`verifieLe`, `verifieParId`), indépendamment du fichier.
+  Effacer la pièce ne l'efface pas.
 
 ---
 
@@ -93,8 +144,10 @@ produit doit faire, pas seulement sa configuration.
 3. **Le type MIME n'est pas vérifié contre le contenu.** Il est comparé à une
    liste blanche, mais reste une déclaration du navigateur. Une inspection de la
    signature du fichier (les premiers octets) le confirmerait.
-4. **Aucune purge automatique.** La commande existe, le déclenchement
-   périodique non.
+4. **L'ordonnanceur n'est pas branché.** Les deux commandes de conservation
+   existent et sont testées ; rien ne les appelle encore chaque jour. Tant que
+   c'est le cas, la durée d'un an est écrite dans la politique sans être
+   appliquée — c'est le manque le plus visible de cette liste.
 5. **Aucune journalisation des accès.** Savoir qui a ouvert la pièce d'identité
    de qui, et quand, fait partie de ce qu'une autorité de contrôle demande.
 6. **Aucune restitution automatisée.** Le droit à la portabilité s'exerce
@@ -102,7 +155,10 @@ produit doit faire, pas seulement sa configuration.
 
 ---
 
-## Purge manuelle
+## Purge manuelle, hors du cycle d'un an
+
+`purger:documents` reste disponible pour un effacement ciblé — retirer tous les
+CV de plus de deux ans, par exemple, indépendamment du cycle de conservation.
 
 ```bash
 # Ce qui serait supprimé, sans rien écrire
@@ -114,4 +170,5 @@ pnpm cli purger:documents --type CV --jours 730
 
 La commande ne touche qu'un type à la fois et exige un âge explicite : une purge
 qui se déclencherait sur des valeurs par défaut est une perte de données qui
-attend son heure.
+attend son heure. À la différence des deux balayages de conservation, elle
+n'écrit à personne — elle efface.

@@ -19,5 +19,7 @@ export * from './mission';
 export * from './proposition';
 export * from './matching';
 export * from './document';
+export * from './conservation';
+export * from './conditions';
 export * from './profil';
 export * from './tension';

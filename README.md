@@ -30,13 +30,16 @@ Le projet est un **POC de onze jours**. Quatre jalons sur cinq sont entamés.
 | J7–J9 — Tableau de bord, vitrine, conformité | Tableau de bord candidat, pages publiques, n8n, RGAA / RGESN / RGPD                                       | **Partiel** — voir ci-dessous |
 | J10–J11 — Tests, livrables, soutenance       | Couverture transmise, étude de marché, chiffrage réel, pitch                                              | À faire · 4 j·dev             |
 
-**306 tests au vert** : 274 sur l'API, 32 sur les règles partagées. Le front n'en a aucun.
+**324 tests au vert** : 292 sur l'API, 32 sur les règles partagées. Le front n'en a aucun.
 
-Du jalon J7–J9 sont livrés le **tableau de bord candidat**, les **six pages vitrine** (accueil,
-fonctionnement, à propos, FAQ, contact, mentions légales) et la refonte complète des écrans sur le
-canvas de design. Restent les **automatisations n8n**, la **conformité** (RGAA, RGESN, RGPD) et le
-**référencement**. Le chiffrage par fonctionnalité, le plan de repli et les livrables datés sont
-dans le cahier des charges figé à J+2, qui sert de référence pour l'écart entre estimé et réel.
+Du jalon J7–J9 sont livrés le **tableau de bord candidat**, les **huit pages vitrine** (accueil,
+fonctionnement, à propos, FAQ, contact, mentions légales, conditions d'utilisation, politique de
+confidentialité) et la refonte complète des écrans sur le canvas de design. Le volet RGPD est
+entamé : dépôt des pièces justificatives, **conservation bornée à un an** avec relance par courriel,
+et consentement recueilli et daté à l'inscription. Restent les **automatisations n8n**, le reste de
+la **conformité** (RGAA, RGESN) et le **référencement**. Le chiffrage par fonctionnalité, le plan de
+repli et les livrables datés sont dans le cahier des charges figé à J+2, qui sert de référence pour
+l'écart entre estimé et réel.
 
 **La boucle produit est fermée** : un service publie un besoin, un intérimaire qualifié le voit et
 postule, le service le confirme, la mission apparaît dans son suivi.
@@ -46,8 +49,10 @@ schéma et **aucun service ne les lit** — zéro occurrence dans `backend/src`.
 et les relevés d'heures annoncés en tête de ce document sont donc une intention du modèle de
 données, pas une fonctionnalité.
 
-**Trois manques bloquent une mise en ligne**, détaillés dans « Limites connues » : le dépôt de
-pièces justificatives, les conditions d'utilisation, et l'identité légale de l'éditeur.
+**Un seul manque bloque encore une mise en ligne**, détaillé dans « Limites connues » :
+**l'identité légale de l'éditeur**, seize champs que seule l'agence détient, dont la garantie
+financière obligatoire pour une entreprise de travail temporaire. Les deux autres — le dépôt de
+pièces justificatives et les conditions d'utilisation — sont levés.
 
 ---
 
@@ -338,11 +343,17 @@ encadraient : le canvas est dessiné pour le poste de travail. Les points de rup
 
 ### Ce que le canvas décrit et que l'API ne sait pas faire
 
-Trois écrans du canvas reposent sur un **dépôt de documents** — étape 2 de l'inscription, cartes du
-dossier candidat, compteurs de complétion par pièce. Il n'existe ni modèle de fichier ni route de
-téléversement : ces parties ne sont pas transposées, et les textes de la vitrine décrivent le
-parcours réel plutôt que celui du canvas. Même raison pour l'interrupteur « Notifications par
-e-mail » des paramètres, et pour la liste publique de missions. Voir « Limites connues ».
+Trois écrans du canvas reposaient sur un **dépôt de documents** — étape 2 de l'inscription, cartes
+du dossier candidat, compteurs de complétion par pièce. Ils sont désormais transposés : le dossier
+existe, avec une ligne par pièce attendue, remplie ou non. Le dépôt reste hors du parcours
+d'inscription, qui crée un compte et rien de plus ; les pièces se déposent depuis « Mon profil »,
+une fois l'adresse confirmée.
+
+Restent non transposés l'interrupteur « Notifications par e-mail » des paramètres — le modèle
+`Utilisateur` ne porte aucune préférence de ce genre, et en poser un qui ne commanderait rien serait
+mentir — et la **liste publique de missions**, `GET /missions` exigeant toujours une session. Les
+textes de la vitrine décrivent le parcours réel plutôt que celui du canvas. Voir « Limites
+connues ».
 
 **Le thème sombre n'existe pas dans le canvas.** Les teintes sombres de `main.css` sont une
 transposition des mêmes hues, faite pour que les écrans restent lisibles. À faire valider — ou à
@@ -365,8 +376,8 @@ backend/                          API NestJS
     offres-echantillon.json       102 offres réelles, rejouables sans réseau
   prisma/
     schema.prisma                 modèle complet du produit + 3 invariants métier
-    migrations/                   … statut réglementaire, retrait de la filière
-    seed.ts                       agence, qualifications, SAAD, candidats, comptes
+    migrations/                   … statut réglementaire, pièces justificatives, conservation
+    seed.ts                       agence, deux diplômes, SAAD, candidats, comptes ; élague le référentiel
   src/
     auth/                         authentification, rôles, sessions, mots de passe
       auth.decorateurs.ts         @Public, @Roles, @UtilisateurCourant, @AgenceCourante
@@ -386,8 +397,11 @@ backend/                          API NestJS
     matching/                     porte d'éligibilité et score explicable
       score.ts                    le barème, sans Prisma ni Nest : testable seul
     missions/                     dépôt de besoin, visibilité par profil, annulation
-    documents/                    pieces justificatives : stockage, depot, purge
+    documents/                    pièces justificatives : stockage, dépôt, conservation
       stockage.service.ts         disque, noms opaques, racine jamais servie
+      conservation.service.ts     relance à un an, réponse au lien, effacement sans réponse
+      conservation.controller.ts  les deux routes publiques, ouvertes par jeton et non par session
+      echeances.ts                les deux dates du cycle, calculées en un seul endroit
     mon-profil/                   ce que l'intérimaire modifie sur sa propre fiche
     propositions/                 candidatures, décision du client, mission confirmée
     donnees-publiques/            France Travail : collecte, nettoyage, baromètre
@@ -399,8 +413,9 @@ backend/                          API NestJS
     geocodage/                    Base Adresse Nationale : adresse -> point
       ban.client.ts               appel BAN et règles de rejet (pur, testé sans réseau)
       geocodage.service.ts        écriture lat/lon/geom, rattrapage en lot
-    cli/main.ts                   importer:offres, exporter:offres, barometre, geocoder
-    qualifications/               référentiel partagé
+    cli/main.ts                   importer:offres, exporter:offres, barometre, geocoder,
+                                  purger:documents, conservation:relancer, conservation:purger
+    qualifications/               référentiel partagé — deux diplômes : DEAS et AVS
     utilisateurs/                 gestion des comptes
     common/
       zod-validation.pipe.ts      valide avec les schémas de @releve/shared
@@ -447,10 +462,11 @@ frontend/                         Front Nuxt
     composables/
       useSession.ts               identité connectée (aucun jeton côté page)
       useApi.ts                   appel via le relais /bff
+      useCompletude.ts            avancement du dossier, partagé par la barre latérale et le profil
       usePreferencesAffichage.ts  contraste renforcé, animations réduites
     middleware/
       auth.global.ts              tout est fermé sauf liste blanche ; vitrine ouverte à tous
-    pages/                        30 routes
+    pages/                        31 routes
       accueil.vue                 vitrine : promesse, trois étapes, dossier candidat
       fonctionnement.vue          le parcours en six étapes
       a-propos.vue                positionnement, et « déclaré n'est pas vérifié »
@@ -458,7 +474,8 @@ frontend/                         Front Nuxt
       contact.vue                 coordonnées et formulaire, qui compose un courriel
       mentions-legales.vue        rubriques légales, champs « À compléter », en noindex
       conditions-utilisation.vue  brouillon de CGU, en noindex
-      politique-confidentialite.vue  traitements réels + ce qui reste à préciser
+      politique-confidentialite.vue  traitements réels, durée de conservation, ce qui reste à préciser
+      conservation.vue            cible du lien de relance : garder les pièces un an de plus, ou les effacer
       connexion.vue
       inscription/interimaire.vue le seul parcours public ; /inscription y redirige (301)
       verification.vue            cible du lien reçu : confirme, puis redirige selon le rôle
@@ -494,6 +511,9 @@ shared/                           @releve/shared — contrat API ↔ front
     habilitation.ts               statut réglementaire et cohérence du justificatif
     verification.ts               confirmation d'adresse et destination par rôle
     reinitialisation.ts           mot de passe oublié
+    document.ts                   types de pièces, formats admis, plafond de taille
+    conservation.ts               durée de conservation, délai de réponse, décision
+    conditions.ts                 version des conditions générales en ligne
     tension.ts                    baromètre et suggestion de taux
     pagination.ts
   test/                           32 tests unitaires des règles partagées
@@ -556,14 +576,30 @@ dont la mission n'a pas besoin** :
 - l'aptitude du candidat se résume à une date de visite médicale et deux booléens. La plateforme a
   besoin de savoir si quelqu'un est déployable, pas pourquoi. Aucun motif, aucun document médical.
 
+Ce que la plateforme collecte tout de même — les pièces justificatives, dont un NIR, une pièce
+d'identité et un RIB — est **borné dans le temps**. Chaque pièce est conservée un an à compter de
+son dépôt ; à l'échéance, un courriel demande à la personne si elle veut qu'on la garde, et **sans
+réponse sous trente jours elle est effacée**. Le silence ne vaut pas accord : c'est le point de
+toute la mécanique. La durée vaut pour les cinq types sans exception — le code ne branche nulle part
+sur le type de pièce pour calculer une échéance. Voir
+[`docs/conservation-documents.md`](docs/conservation-documents.md).
+
+Le **consentement** aux conditions générales est recueilli à l'inscription, et enregistré avec la
+version acceptée (`conditionsAccepteesLe`, `conditionsVersion`) : accepter un texte, c'est accepter
+celui-là, et une révision ultérieure ne peut pas se prévaloir d'un consentement donné à la
+précédente. La connexion, elle, ne fait rien accepter — on n'accepte rien en se connectant.
+
 ---
 
 ## Sécurité
 
 **Fermé par défaut.** `JwtAuthGuard` est enregistrée en garde globale : toute route exige un jeton
 valide tant qu'elle n'est pas explicitement marquée `@Public()`. Une route ajoutée sans y penser est
-donc protégée, pas ouverte. Les seules routes publiques sont la connexion, les deux inscriptions,
-la confirmation d'adresse, le rafraîchissement, la déconnexion et `GET /api/sante`.
+donc protégée, pas ouverte. Les seules routes publiques sont la connexion, l'inscription, la
+confirmation d'adresse, le mot de passe oublié, le rafraîchissement, la déconnexion,
+`GET /api/sante` et les **deux routes de conservation** — celles-là autorisées par un jeton reçu par
+courriel, à usage unique et borné, parce qu'on écrit à quelqu'un précisément parce qu'il ne s'est
+plus connecté depuis un an.
 
 **L'adresse e-mail est prouvée avant tout accès.** Une inscription n'ouvre aucune session : elle
 envoie un lien, et c'est lui — à usage unique, valable 48 heures, stocké en base sous forme
@@ -774,6 +810,10 @@ persuadées d'avoir la mission.
 | `DELETE` | `/mon-profil/diplomes/:qualificationId` | candidat |
 | `POST`   | `/mon-profil/experiences`               | candidat |
 | `DELETE` | `/mon-profil/experiences/:experienceId` | candidat |
+| `GET`    | `/mon-profil/documents`                 | candidat |
+| `POST`   | `/mon-profil/documents/:type`           | candidat |
+| `GET`    | `/mon-profil/documents/:id/contenu`     | candidat |
+| `DELETE` | `/mon-profil/documents/:id`             | candidat |
 
 Routes séparées de `/candidats` plutôt que des gardes assouplies : le back-office garde ses règles
 intactes, et ce qu'un candidat peut toucher se lit d'un coup d'œil sur un seul fichier. **Ce qui en
@@ -787,6 +827,26 @@ rapporte aucun point tant qu'un certificat de travail n'a pas été vu.
 
 `/mon-profil/completude` répond à la question que pose tout inscrit — pourquoi aucune mission ne
 m'est proposée — en listant les manques dans l'ordre où ils bloquent.
+
+L'agence lit le même dossier en **lecture seule** par `GET /candidats/:id/documents` et
+`.../documents/:id/contenu` : elle vérifie une pièce, elle n'en dépose ni n'en retire à la place de
+quelqu'un. Le contenu sort toujours en `Content-Disposition: attachment`, jamais `inline`, pour
+qu'un PDF téléversé ne s'exécute pas dans le contexte de l'API.
+
+### Conservation des pièces
+
+| Méthode | Route           | Accès                   |
+| ------- | --------------- | ----------------------- |
+| `GET`   | `/conservation` | jeton reçu par courriel |
+| `POST`  | `/conservation` | jeton reçu par courriel |
+
+**Les deux seules routes du produit autorisées par un jeton plutôt que par une session.** C'est
+voulu : on écrit à quelqu'un précisément parce qu'il ne s'est plus connecté depuis un an. Exiger une
+connexion pour répondre reviendrait à ne jamais obtenir de réponse, donc à effacer par défaut.
+
+Le jeton est à usage unique, borné au délai de réponse, émis pour une adresse donnée et invalide si
+elle a changé depuis. Le `GET` **ne le consomme pas** — un client de messagerie qui précharge les
+liens brûlerait sinon la décision de quelqu'un qui n'a encore rien lu.
 
 ### Tension du marché
 
@@ -809,7 +869,7 @@ m'est proposée — en listant les manques dans l'ordre où ils bloquent.
 | `pnpm dev`                               | Contracts compilés, puis API et front en parallèle  |
 | `pnpm dev:backend` / `pnpm dev:frontend` | Un seul des deux                                    |
 | `pnpm build`                             | Contracts, puis API, puis front                     |
-| `pnpm test`                              | Règles partagées (32) puis intégration API (274)    |
+| `pnpm test`                              | Règles partagées (32) puis intégration API (292)    |
 | `pnpm test:shared`                       | Règles partagées seules, sans base                  |
 | `pnpm test:backend`                      | Intégration API seule                               |
 | `pnpm typecheck`                         | TypeScript sur les trois paquets, tests compris     |
@@ -819,6 +879,21 @@ m'est proposée — en listant les manques dans l'ordre où ils bloquent.
 | `pnpm db:seed`                           | Jeu de données de démonstration                     |
 | `pnpm db:studio`                         | Prisma Studio                                       |
 | `pnpm db:reset`                          | **Détruit** la base locale et rejoue les migrations |
+
+### Commandes d'exploitation
+
+Elles tournent hors HTTP, sur le même contexte Nest que l'API — mêmes services, mêmes règles. Les
+deux premières sont **à appeler une fois par jour par l'ordonnanceur**, dans cet ordre et jamais
+fondues en une seule : la relance du matin effacerait sinon ce qu'elle vient d'annoncer. `--sec`
+montre ce qui se passerait sans rien écrire.
+
+| Commande                         | Effet                                                               |
+| -------------------------------- | ------------------------------------------------------------------- |
+| `pnpm cli conservation:relancer` | Écrit aux candidats dont des pièces atteignent un an                |
+| `pnpm cli conservation:purger`   | Efface les pièces restées sans réponse 30 jours après la relance    |
+| `pnpm cli purger:documents`      | Effacement ciblé par type et par âge, hors du cycle de conservation |
+| `pnpm cli geocoder`              | Situe les fiches restées sans coordonnées                           |
+| `pnpm cli importer:offres`       | Collecte des offres France Travail (voir « Données publiques »)     |
 
 ---
 
@@ -845,11 +920,15 @@ auto-hébergé sur un extrait OSM, ou une API de matrice de distances).
 
 **Le dépôt de pièces est en place, sans les garde-fous d'un usage réel.** Modèle
 `DocumentCandidat`, stockage disque sous `STOCKAGE_DOCUMENTS`, routes de dépôt, de téléchargement et
-de retrait, purge manuelle par la CLI. Manquent le chiffrement au repos, l'analyse antivirale, la
-vérification de la signature du fichier, la journalisation des accès et le déclenchement périodique
-de la purge. Les durées de conservation sont proposées, pas arbitrées — et la première décision à
-prendre est de savoir si la copie de la pièce d'identité doit être conservée une fois le contrôle
-constaté. Tout est détaillé dans
+de retrait. **La conservation est bornée à un an** : à l'échéance, `pnpm cli conservation:relancer`
+écrit à la personne pour lui demander si elle veut qu'on garde ses pièces, et
+`conservation:purger` efface celles restées sans réponse trente jours plus tard — le silence ne vaut
+pas accord. Manquent le chiffrement au repos, l'analyse antivirale, la vérification de la signature
+du fichier, la journalisation des accès, et **l'ordonnanceur qui appelle ces deux commandes chaque
+jour** : tant qu'il n'est pas branché, la durée d'un an est écrite dans la politique de
+confidentialité sans être appliquée. La durée vaut pour les **cinq types sans exception**, pièce
+d'identité et diplôme compris : le code ne branche nulle part sur le type de pièce pour calculer une
+échéance. Tout est détaillé dans
 [`docs/conservation-documents.md`](docs/conservation-documents.md).
 
 **Aucune notification métier.** Les deux seuls courriels envoyés concernent le compte lui-même —
@@ -882,15 +961,21 @@ rapport de couverture est un livrable attendu.
 **Les trois textes juridiques sont des brouillons de structure.** Mentions légales, conditions
 d'utilisation et politique de confidentialité existent et sont reliées au pied de page. Elles disent
 ce que le code fait vraiment, et affichent « À compléter » là où seule l'agence détient le fait —
-douze champs aux mentions légales, dont la garantie financière obligatoire pour une entreprise de
-travail temporaire. Aucune n'a été relue par un professionnel du droit, et les trois sont en
-`noindex`. **Aucune phrase de consentement n'est affichée** tant qu'elles ne sont pas finies : faire
-accepter un brouillon ne vaudrait pas mieux que le lien mort qu'il remplace.
+seize champs sur dix-sept, dont la garantie financière obligatoire pour une entreprise de travail
+temporaire. Aucune n'a été relue par un professionnel du droit, et les trois sont en
+`noindex`. **L'inscription fait cocher « j'accepte les conditions générales »**, et enregistre la
+date avec la version acceptée (`conditionsAccepteesLe`, `conditionsVersion`) : accepter un texte,
+c'est accepter celui-là, et une révision ultérieure ne peut pas se prévaloir d'un consentement donné
+à la précédente. La connexion, elle, ne fait toujours rien accepter — on n'accepte rien en se
+connectant.
 
-**L'identité légale de l'éditeur manque.** `/mentions-legales` porte ses rubriques, mais onze champs
-affichent « À compléter » : raison sociale, SIRET, directeur de la publication, hébergeur, et la
-**garantie financière** obligatoire pour une entreprise de travail temporaire. Ces faits ne peuvent
-venir que de l'agence ; la page est en `noindex` tant qu'elle est incomplète.
+**L'identité légale de l'éditeur manque. C'est le seul point qui bloque encore une mise en ligne.**
+Les trois pages légales portent leurs rubriques, mais seize champs sur dix-sept affichent
+« À compléter » : raison sociale, SIRET, directeur de la publication, hébergeur, durée de
+conservation du dossier candidat, et la **garantie financière** obligatoire pour une entreprise de
+travail temporaire. Seule l'adresse de contact est renseignée. Ces faits ne peuvent venir que de
+l'agence — en inventer un seul exposerait l'éditeur ; les pages restent en `noindex` tant qu'elles
+sont incomplètes. Un seul fichier à éditer : `frontend/app/data/legal.ts`.
 
 **Les missions ne sont pas visibles sans compte.** `GET /missions` exige une session. Un visiteur ne
 peut donc pas parcourir les offres, alors que c'est le premier levier d'acquisition d'une agence.

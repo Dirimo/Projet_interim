@@ -103,10 +103,12 @@ sécurité autant que du confort.
 
 ## Rappel : ce qui a déjà été tranché
 
-| Question                        | Réponse retenue                                                |
-| ------------------------------- | -------------------------------------------------------------- |
-| Profil unique ou deux entités ? | Un seul candidat, avec un tableau `filieres`                   |
-| Client et lieu d'intervention   | Deux modèles distincts — un SAAD signe, on intervient ailleurs |
-| Convention collective           | Portée par le client, entreprise utilisatrice                  |
-| Données de santé                | Une date de visite et deux booléens, rien de plus              |
-| Bénéficiaire                    | Référence pseudonymisée, jamais nommé                          |
+| Question                         | Réponse retenue                                                           |
+| -------------------------------- | ------------------------------------------------------------------------- |
+| Profil unique ou deux entités ?  | Un seul candidat, avec un tableau `filieres`                              |
+| Client et lieu d'intervention    | Deux modèles distincts — un SAAD signe, on intervient ailleurs            |
+| Convention collective            | Portée par le client, entreprise utilisatrice                             |
+| Données de santé                 | Une date de visite et deux booléens, rien de plus                         |
+| Bénéficiaire                     | Référence pseudonymisée, jamais nommé                                     |
+| Durée de conservation des pièces | Un an, puis relance par courriel ; sans réponse sous 30 jours, effacement |
+| Pièce d'identité et diplôme      | Même durée que le reste : un an, sans traitement particulier              |

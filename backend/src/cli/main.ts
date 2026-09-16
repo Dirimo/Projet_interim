@@ -2,11 +2,17 @@ import 'reflect-metadata';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Command } from 'commander';
-import { typeDocumentSchema, TYPES_DOCUMENT } from '@releve/shared';
+import {
+  DELAI_REPONSE_JOURS,
+  DUREE_CONSERVATION_MOIS,
+  typeDocumentSchema,
+  TYPES_DOCUMENT,
+} from '@releve/shared';
 import { readFile, writeFile } from 'node:fs/promises';
 import { AppModule } from '../app.module';
 import { FranceTravailClient } from '../donnees-publiques/france-travail.client';
 import { OffresService, ROMES_SECTEUR } from '../donnees-publiques/offres.service';
+import { ConservationService } from '../documents/conservation.service';
 import { DocumentsService } from '../documents/documents.service';
 import { GeocodageService } from '../geocodage/geocodage.service';
 
@@ -238,6 +244,62 @@ programme
       console.log(`Concernees          ${rapport.concernees}`);
       console.log(`Supprimees          ${rapport.supprimees}`);
       console.log(options.sec ? 'Simulation : rien n a ete ecrit.' : '');
+      console.log('');
+    } finally {
+      await app.close();
+    }
+  });
+
+/**
+ * Les deux temps de la conservation, en deux commandes distinctes.
+ *
+ * Separees volontairement : la premiere ecrit a des gens, la seconde efface des
+ * fichiers. Les fondre en une seule ferait qu'un ordonnanceur mal regle
+ * declencherait les deux du meme mouvement, et que la relance du matin
+ * effacerait ce qu'elle vient d'annoncer. Cadence attendue : une fois par jour
+ * chacune.
+ */
+programme
+  .command('conservation:relancer')
+  .description(
+    `Ecrit aux candidats dont des pieces atteignent ${DUREE_CONSERVATION_MOIS} mois, pour leur demander s il faut les garder`,
+  )
+  .option('--sec', 'montre qui serait relance, sans rien envoyer ni ecrire', false)
+  .action(async (options) => {
+    const app = await contexte();
+    const conservation = app.get(ConservationService);
+
+    try {
+      const rapport = await conservation.relancer(options.sec === true);
+
+      console.log('');
+      console.log(`Dossiers relances   ${rapport.dossiers}`);
+      console.log(`Pieces concernees   ${rapport.pieces}`);
+      console.log(`Delai de reponse    ${DELAI_REPONSE_JOURS} jours`);
+      console.log(options.sec ? 'Simulation : aucun courriel envoye, rien ecrit.' : '');
+      console.log('');
+    } finally {
+      await app.close();
+    }
+  });
+
+programme
+  .command('conservation:purger')
+  .description(
+    `Efface les pieces restees sans reponse plus de ${DELAI_REPONSE_JOURS} jours apres la relance`,
+  )
+  .option('--sec', 'montre ce qui serait efface, sans rien ecrire', false)
+  .action(async (options) => {
+    const app = await contexte();
+    const conservation = app.get(ConservationService);
+
+    try {
+      const rapport = await conservation.purgerSansReponse(options.sec === true);
+
+      console.log('');
+      console.log(`Dossiers concernes  ${rapport.dossiers}`);
+      console.log(`Pieces effacees     ${rapport.pieces}`);
+      console.log(options.sec ? 'Simulation : rien n a ete efface.' : '');
       console.log('');
     } finally {
       await app.close();

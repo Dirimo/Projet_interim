@@ -151,6 +151,15 @@ model Utilisateur {
   echecsConnexion Int       @default(0)
   dernierEchecLe  DateTime?
 
+  /// Date a laquelle la personne a coche « j'accepte les conditions generales »,
+  /// et version du texte qu'elle a accepte. Nulles pour les comptes crees par
+  /// l'agence et pour ceux qui existaient avant la case : on n'antidate pas un
+  /// consentement. Conserver la version compte autant que la date — un texte
+  /// revise n'est plus celui qui a ete accepte, et c'est cette paire qui se
+  /// produit en cas de litige.
+  conditionsAccepteesLe DateTime?
+  conditionsVersion     String?
+
   agenceId   String?   @db.Uuid
   agence     Agence?   @relation(fields: [agenceId], references: [id], onDelete: SetNull)
   candidatId String?   @unique @db.Uuid
@@ -199,6 +208,7 @@ model JetonRafraichissement {
 enum UsageJeton {
   VERIFICATION_EMAIL
   REINITIALISATION_MOT_DE_PASSE
+  CONSERVATION_DOCUMENTS
 }
 
 /**
@@ -340,7 +350,22 @@ model DocumentCandidat {
 
   /// Date de peremption, pour les pieces qui en ont une (titre de sejour,
   /// carte d'identite). Nulle sinon.
+  ///
+  /// A ne pas confondre avec `conservationJusquAu` : celle-ci dit quand le
+  /// document cesse d'etre valable, celle-la quand la plateforme cesse d'avoir
+  /// le droit de le garder. Une carte d'identite perimee reste conservable, et
+  /// un diplome sans peremption finit quand meme par devoir etre efface.
   expireLe DateTime? @db.Date
+
+  /// Date jusqu'a laquelle la plateforme conserve la piece : un an apres le
+  /// depot, renouvele d'un an a chaque fois que la personne le confirme.
+  /// Passee cette date, un courriel lui demande si elle veut qu'on la garde.
+  conservationJusquAu DateTime
+
+  /// Date d'envoi de ce courriel. Nulle tant que rien n'a ete demande, remise a
+  /// nulle des que la personne repond. Sa presence est ce qui declenche le
+  /// compte a rebours avant effacement : sans reponse, le silence vaut refus.
+  relanceEnvoyeeLe DateTime?
 
   ajouteLe  DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -349,6 +374,10 @@ model DocumentCandidat {
   /// Un dossier qui accumulerait trois RIB ne dirait plus lequel fait foi.
   @@unique([candidatId, type])
   @@index([candidatId])
+  /// Les deux balayages de conservation parcourent la table entiere : celui qui
+  /// releve les pieces echues, puis celui qui efface celles restees sans
+  /// reponse. Cet index leur evite de la lire en entier a chaque passage.
+  @@index([conservationJusquAu, relanceEnvoyeeLe])
   @@map("document_candidat")
 }
 

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from './mail.service';
-import { courrielMotDePasseChange } from './gabarits';
+import { courrielConservationDocuments, courrielMotDePasseChange } from './gabarits';
 
 /**
  * Ce qu'on ecrit a quelqu'un a propos de son compte.
@@ -59,5 +59,35 @@ export class NotificationsCompteService {
     }
 
     await this.mail.envoyer(courrielMotDePasseChange(cible.email, cible.prenom, origine));
+  }
+
+  /**
+   * Demande si les pieces arrivees a un an doivent etre conservees.
+   *
+   * Le destinataire est passe par l'appelant et non relu ici : c'est le meme
+   * compte que celui pour lequel le lien a ete emis, et le lien ne vaut que
+   * pour l'adresse qui figurait dans le jeton. Aller rechercher l'adresse
+   * ouvrirait la porte a un decalage entre les deux.
+   */
+  async conservationDocuments(demande: {
+    email: string;
+    prenom: string | null;
+    pieces: string[];
+    effacementLe: Date;
+    lien: string;
+  }): Promise<void> {
+    await this.mail.envoyer(
+      courrielConservationDocuments(
+        demande.email,
+        demande.prenom,
+        demande.pieces,
+        demande.lien,
+        demande.effacementLe.toLocaleDateString('fr-FR', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        }),
+      ),
+    );
   }
 }
