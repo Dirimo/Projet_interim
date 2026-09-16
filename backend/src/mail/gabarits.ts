@@ -283,3 +283,63 @@ export function courrielConservationDocuments(
 
   return { destinataire, sujet: `Releve — ${titre}`, texte, html };
 }
+
+/**
+ * Message du formulaire de contact, relaye a l'agence.
+ *
+ * Deux precautions, parce que tout ici est saisi par un inconnu. Le corps est
+ * echappe avant d'entrer dans le HTML — un nom contenant du balisage
+ * s'afficherait sinon comme du balisage dans la boite de l'agence. Et
+ * l'adresse saisie ne devient jamais l'expediteur : elle part en `replyTo`,
+ * pose par l'appelant. Usurper l'expediteur ferait rejeter le message par
+ * n'importe quel relais qui verifie SPF, et ouvrirait le site a l'envoi de
+ * courrier au nom de n'importe qui.
+ */
+export function courrielContact(
+  destinataire: string,
+  demande: { prenom: string; nom: string; email: string; sujet: string; message: string },
+): Courriel {
+  const identite = `${demande.prenom} ${demande.nom}`.trim();
+  const titre = `Message du site : ${demande.sujet}`;
+
+  const texte = [
+    `De     ${identite}`,
+    `Adresse ${demande.email}`,
+    `Sujet  ${demande.sujet}`,
+    '',
+    demande.message,
+    '',
+    'Repondre a ce courriel repond directement a la personne.',
+    '',
+    PIED,
+  ].join('\n');
+
+  const lignes = demande.message
+    .split('\n')
+    .map((ligne) => echapper(ligne))
+    .join('<br>');
+
+  const html = enveloppe(
+    titre,
+    `<table style="margin:0 0 20px;font-size:14px;line-height:1.6;border-collapse:collapse">
+       <tr>
+         <td style="padding:2px 16px 2px 0;color:#78716c">De</td>
+         <td style="padding:2px 0;font-weight:600">${echapper(identite)}</td>
+       </tr>
+       <tr>
+         <td style="padding:2px 16px 2px 0;color:#78716c">Adresse</td>
+         <td style="padding:2px 0"><a href="mailto:${echapper(demande.email)}">${echapper(demande.email)}</a></td>
+       </tr>
+       <tr>
+         <td style="padding:2px 16px 2px 0;color:#78716c">Sujet</td>
+         <td style="padding:2px 0">${echapper(demande.sujet)}</td>
+       </tr>
+     </table>
+     <div style="padding:16px 18px;background:#f5f5f4;border-radius:10px;line-height:1.65">${lignes}</div>
+     <p style="margin:20px 0 0;font-size:13px;color:#57534e;line-height:1.6">
+       Repondre a ce courriel repond directement a la personne.
+     </p>`,
+  );
+
+  return { destinataire, sujet: `Releve — ${titre}`, texte, html, repondreA: demande.email };
+}
