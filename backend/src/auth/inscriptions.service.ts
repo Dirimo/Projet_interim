@@ -3,12 +3,12 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import type {
   EspacePersonnel,
-  InscriptionEntreprise,
   InscriptionInterimaire,
   ReponseInscription,
   UtilisateurSession,
 } from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { GeocodageService } from '../geocodage/geocodage.service';
 import { VerificationEmailService } from './verification-email.service';
 import { hacherMotDePasse } from './mots-de-passe';
 
@@ -20,6 +20,7 @@ export class InscriptionsService {
     private readonly prisma: PrismaService,
     private readonly verification: VerificationEmailService,
     private readonly config: ConfigService,
+    private readonly geocodage: GeocodageService,
   ) {}
 
   /**
@@ -75,69 +76,6 @@ export class InscriptionsService {
   }
 
   /**
-   * Inscription d'une entreprise utilisatrice.
-   *
-   * La fiche client nait inactive : l'agence verifie l'entreprise et renseigne
-   * sa convention collective avant qu'elle puisse deposer un besoin.
-   *
-   * Aucune session n'est ouverte ici. L'acces passe par le lien envoye a
-   * l'adresse saisie : c'est le seul moyen de s'assurer que celui qui inscrit
-   * une entreprise possede bien l'adresse de contact qu'il declare. Ce qui
-   * attend la validation de l'agence, c'est la fiche ; ce qui attend le clic,
-   * c'est l'acces.
-   */
-  async entreprise(donnees: InscriptionEntreprise): Promise<ReponseInscription> {
-    await this.exigerEmailLibre(donnees.compte.email);
-
-    const agenceId = await this.agenceDInscription();
-    const empreinte = await hacherMotDePasse(donnees.compte.motDePasse);
-    let compte: { id: string; email: string };
-
-    try {
-      const utilisateur = await this.prisma.$transaction(async (tx) => {
-        const client = await tx.client.create({
-          data: {
-            agenceId,
-            raisonSociale: donnees.entreprise.raisonSociale,
-            siret: donnees.entreprise.siret,
-            type: donnees.entreprise.type,
-            contactNom: donnees.entreprise.contactNom ?? null,
-            contactEmail: donnees.compte.email,
-            contactTel: donnees.entreprise.contactTel ?? null,
-            actif: false,
-          },
-          select: { id: true },
-        });
-
-        return tx.utilisateur.create({
-          data: {
-            email: donnees.compte.email,
-            motDePasse: empreinte,
-            role: 'CLIENT',
-            clientId: client.id,
-          },
-        });
-      });
-
-      this.logger.log(`Inscription entreprise : ${donnees.entreprise.raisonSociale}`);
-
-      compte = utilisateur;
-    } catch (cause) {
-      throw this.traduireConflit(cause, 'siret', 'Une entreprise est deja inscrite avec ce SIRET');
-    }
-
-    // Hors du `catch` : une panne d'emission n'est pas un conflit de SIRET, et
-    // la traduire comme tel afficherait un message faux a l'inscrit.
-    await this.verification.emettre({
-      id: compte.id,
-      email: compte.email,
-      prenom: donnees.entreprise.contactNom ?? null,
-    });
-
-    return { email: compte.email, verificationRequise: true };
-  }
-
-  /**
    * Inscription d'un interimaire.
    *
    * Deux verrous distincts, qu'il ne faut pas confondre. Le statut
@@ -152,6 +90,7 @@ export class InscriptionsService {
     const agenceId = await this.agenceDInscription();
     const empreinte = await hacherMotDePasse(donnees.compte.motDePasse);
     let compte: { id: string; email: string };
+    let ficheId: string;
 
     try {
       const utilisateur = await this.prisma.$transaction(async (tx) => {
@@ -162,7 +101,6 @@ export class InscriptionsService {
             prenom: donnees.interimaire.prenom,
             email: donnees.compte.email,
             telephone: donnees.interimaire.telephone,
-            filieres: donnees.interimaire.filieres,
             adresse: donnees.interimaire.adresse,
             codePostal: donnees.interimaire.codePostal,
             ville: donnees.interimaire.ville,
@@ -173,6 +111,8 @@ export class InscriptionsService {
           },
           select: { id: true },
         });
+
+        ficheId = candidat.id;
 
         return tx.utilisateur.create({
           data: {
@@ -190,6 +130,12 @@ export class InscriptionsService {
     } catch (cause) {
       throw this.traduireConflit(cause, 'email', 'Une fiche existe deja pour cette adresse e-mail');
     }
+
+    // Hors transaction, et deliberement : un appel reseau tenu ouvert le temps
+    // d'une transaction immobilise une connexion de la base, et une BAN lente
+    // ferait echouer des inscriptions parfaitement valides. La fiche est deja
+    // ecrite ; il ne lui manque qu'un point, que `releve geocoder` reprendra.
+    await this.geocodage.situer('candidat', ficheId!, donnees.interimaire);
 
     await this.verification.emettre({
       id: compte.id,
@@ -227,6 +173,12 @@ export class InscriptionsService {
           contactEmail: client.contactEmail,
           contactTel: client.contactTel,
           actif: client.actif,
+          statutReglementaire: client.statutReglementaire,
+          numeroSap: client.numeroSap,
+          numeroAgrement: client.numeroAgrement,
+          numeroFiness: client.numeroFiness,
+          arreteReference: client.arreteReference,
+          arreteDate: client.arreteDate?.toISOString().slice(0, 10) ?? null,
           nombreLieux: client._count.lieux,
         },
       };
@@ -248,7 +200,6 @@ export class InscriptionsService {
           email: candidat.email,
           telephone: candidat.telephone,
           statut: candidat.statut,
-          filieres: candidat.filieres,
           ville: candidat.ville,
           codePostal: candidat.codePostal,
           rayonKm: candidat.rayonKm,

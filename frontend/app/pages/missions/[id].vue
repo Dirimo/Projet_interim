@@ -34,6 +34,8 @@ const mission = computed(() => {
     description: detail.description ?? detail.motifRecours,
     prerequis: detail.prerequis,
     dejaPostule: detail.dejaPostule,
+    distanceKm: detail.distanceKm,
+    horsRayon: detail.horsRayon === true,
   };
 });
 
@@ -54,7 +56,7 @@ const informations = computed<readonly { icone: NomIcone; libelle: string; valeu
       },
       {
         icone: 'euro',
-        libelle: 'Remuneration indicative',
+        libelle: 'Rémunération indicative',
         valeur: remuneration(detail.tauxHoraire),
       },
       { icone: 'map-pin', libelle: 'Lieu', valeur: detail.adresse },
@@ -66,10 +68,20 @@ const envoi = ref(false);
 const erreur = ref('');
 
 /**
+ * Le lieu est-il au-delà du rayon déclaré ?
+ *
+ * La réponse vient du serveur, jamais d'un calcul local : c'est la même règle
+ * qui décide de cet avertissement et du refus à la candidature. Deux copies
+ * finiraient par diverger, et on afficherait « au-delà de votre rayon » sur un
+ * bouton qui marche.
+ */
+const horsRayon = computed(() => mission.value?.horsRayon === true);
+
+/**
  * La candidature est un appel API, pas un lien.
  *
  * La porte d'eligibilite est cote serveur : elle repond 403 avec le motif exact
- * - diplome manquant, profil pas encore valide, filiere absente. On l'affiche
+ * - diplome manquant, profil pas encore valide. On l'affiche
  * tel quel plutot qu'un message generique, parce que le candidat doit savoir ce
  * qui lui manque.
  */
@@ -105,7 +117,7 @@ async function partager(): Promise<void> {
     }
 
     await navigator.clipboard.writeText(lien);
-    partage.value = 'Lien copie.';
+    partage.value = 'Lien copié.';
   } catch {
     // Partage annule par la personne, ou presse-papiers refuse : rien a signaler.
     partage.value = '';
@@ -115,184 +127,338 @@ async function partager(): Promise<void> {
 
 <template>
   <section v-if="mission" class="detail">
-    <AppBarreApp titre="Detail de la mission" action="Partager" @action="partager()" />
+    <!-- Le canvas remplace la barre de detail par un simple retour. « Partager »
+         n'y figure pas mais reste une action reelle de cette page : elle prend
+         place a cote, en texte. -->
+    <div class="chemin">
+      <NuxtLink to="/missions" class="retour">← Retour aux missions</NuxtLink>
+      <button type="button" class="partager" @click="partager()">Partager</button>
+    </div>
 
-    <div class="corps">
-      <header class="etablissement">
-        <AppAvatar :initiales="mission.etablissement.initiales" />
-        <div class="copie">
-          <div class="etiquettes">
-            <AppBadge v-if="mission.urgente" teinte="corail">Urgent</AppBadge>
-            <AppBadge v-if="mission.categorie" teinte="vert">{{ mission.categorie }}</AppBadge>
-          </div>
-          <h1>{{ mission.etablissement.nom }}</h1>
-          <p class="lieu">{{ mission.etablissement.localisation }}</p>
-        </div>
-      </header>
+    <p v-if="partage" class="confirme" role="status">{{ partage }}</p>
 
-      <p v-if="partage" class="partage" role="status">{{ partage }}</p>
-
-      <AppCarte class="essentiel">
-        <div v-for="information in informations" :key="information.libelle" class="information">
-          <span class="tuile"><AppIcon :nom="information.icone" :taille="17" /></span>
+    <div class="colonnes">
+      <article class="fiche">
+        <header class="etablissement">
+          <span class="pastille">{{ mission.etablissement.initiales }}</span>
           <div>
+            <h1>{{ mission.etablissement.nom }}</h1>
+            <p class="lieu">
+              {{ mission.etablissement.localisation }}
+              <template v-if="mission.distanceKm !== null">
+                &middot; {{ mission.distanceKm }} km
+              </template>
+            </p>
+          </div>
+        </header>
+
+        <div v-if="mission.urgente || mission.categorie" class="etiquettes">
+          <span v-if="mission.urgente" class="urgent">Urgent</span>
+          <span v-if="mission.categorie" class="diplome">{{ mission.categorie }}</span>
+        </div>
+
+        <div class="essentiel">
+          <div v-for="information in informations" :key="information.libelle" class="tuile">
             <p class="libelle">{{ information.libelle }}</p>
             <p class="valeur">{{ information.valeur }}</p>
           </div>
         </div>
-      </AppCarte>
 
-      <section class="bloc">
         <h2>Votre mission</h2>
         <p class="texte">{{ mission.description }}</p>
-      </section>
 
-      <section class="bloc">
-        <h2>Prerequis</h2>
-        <div class="etiquettes">
-          <AppBadge
+        <h2>Prérequis</h2>
+        <div class="prerequis">
+          <span
             v-for="prerequis in mission.prerequis"
             :key="prerequis.libelle"
-            :teinte="prerequis.verifie ? 'vert' : 'neutre'"
+            class="exigence"
+            :class="{ acquis: prerequis.verifie }"
           >
             {{ prerequis.libelle }}
-          </AppBadge>
+          </span>
         </div>
-      </section>
+      </article>
 
-      <div class="actions">
-        <p v-if="erreur" class="refus" role="alert">{{ erreur }}</p>
+      <aside class="candidature">
+        <h2 class="titre-aside">Cette mission vous intéresse ?</h2>
 
-        <AppBouton v-if="mission.dejaPostule" icone="check" to="/suivi">
-          Candidature envoyee - voir le suivi
-        </AppBouton>
-        <AppBouton v-else icone="send" :desactive="envoi" @click="candidater()">
-          {{ envoi ? 'Envoi...' : 'Je candidate a cette mission' }}
-        </AppBouton>
+        <template v-if="mission.dejaPostule">
+          <p class="explication">
+            Votre candidature est partie. L'établissement répond généralement dans la journée.
+          </p>
+          <AppBouton icone="check" to="/suivi">Voir le suivi</AppBouton>
+        </template>
 
-        <p class="reassurance">L etablissement repond generalement dans la journee</p>
-      </div>
+        <template v-else-if="horsRayon">
+          <p class="explication">
+            Ce lieu est à {{ mission.distanceKm }} km, au-delà du rayon de déplacement que vous avez
+            déclaré. Vous pouvez l'élargir depuis votre profil.
+          </p>
+          <AppBouton variante="secondaire" to="/mon-profil">Ajuster mon rayon</AppBouton>
+        </template>
+
+        <template v-else>
+          <p class="explication">
+            L'agence vérifie que votre dossier couvre le diplôme exigé avant de transmettre votre
+            candidature à l'établissement.
+          </p>
+
+          <p v-if="erreur" class="refus" role="alert">{{ erreur }}</p>
+
+          <AppBouton icone="send" :desactive="envoi" @click="candidater()">
+            {{ envoi ? 'Envoi...' : 'Je candidate à cette mission' }}
+          </AppBouton>
+
+          <p class="reassurance">L'établissement répond généralement dans la journée.</p>
+        </template>
+      </aside>
     </div>
   </section>
 </template>
 
 <style scoped>
 .detail {
-  padding-block: 16px 0;
+  max-width: 1000px;
 }
 
-.corps {
-  max-width: 640px;
-  padding-top: 12px;
+.chemin {
+  display: flex;
+  gap: 16px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.retour {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--dom);
+  text-decoration: none;
+}
+
+.partager {
+  padding: 0;
+  font-family: var(--sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.partager:hover {
+  color: var(--dom);
+}
+
+.retour:focus-visible,
+.partager:focus-visible {
+  outline: 2px solid var(--dom);
+  outline-offset: 3px;
+}
+
+.confirme {
+  padding: 11px 15px;
+  margin: 0 0 18px;
+  font-size: 13.5px;
+  color: var(--dom-fonce);
+  background: var(--surface-2);
+  border: 1px solid var(--line-forte);
+  border-radius: 12px;
+}
+
+.colonnes {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+
+.fiche {
+  padding: 32px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 22px;
 }
 
 .etablissement {
   display: flex;
-  gap: 12px;
+  gap: 16px;
   align-items: center;
 }
 
-.copie {
-  flex: 1;
-  min-width: 0;
+.pastille {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--dom);
+  background: var(--surface-2);
+  border-radius: 14px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.lieu {
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: var(--muted);
 }
 
 .etiquettes {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  margin-top: 16px;
 }
 
-h1 {
-  margin: 4px 0 0;
-  font-size: 21px;
-  font-weight: 400;
-}
-
-.lieu {
-  margin: 4px 0 0;
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.partage {
-  margin: 12px 0 0;
+.urgent,
+.diplome {
+  padding: 5px 11px;
   font-size: 12px;
+  font-weight: 700;
+  border-radius: 20px;
+}
+
+.urgent {
+  color: var(--eta);
+  background: var(--eta-soft);
+}
+
+.diplome {
   color: var(--dom);
+  background: var(--surface-2);
 }
 
 .essentiel {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 14px;
-  margin-top: 20px;
-}
-
-.information {
-  display: flex;
-  gap: 12px;
-  align-items: center;
+  margin: 28px 0 30px;
 }
 
 .tuile {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  color: var(--dom);
-  background: var(--dom-soft);
-  border-radius: 10px;
+  padding: 16px;
+  background: var(--ground);
+  border-radius: 14px;
 }
 
 .libelle {
-  margin: 0 0 2px;
-  font-size: 11px;
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 
 .valeur {
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.fiche h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
   font-weight: 600;
 }
 
-.bloc {
-  margin-top: 20px;
-}
-
-h2 {
-  margin: 0 0 8px;
-  font-size: 16px;
-  font-weight: 700;
-}
-
 .texte {
-  margin: 0;
+  margin: 0 0 28px;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.prerequis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* Le canvas ne connait qu'un seul etat de prerequis. Celui que l'agence a
+ * verifie est distingue : c'est la difference entre « exige » et « vous
+ * l'avez ». */
+.exigence {
+  padding: 8px 14px;
   font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+}
+
+.exigence.acquis {
+  color: var(--dom);
+  background: var(--surface-2);
+  border-color: var(--surface-2);
+}
+
+.candidature {
+  position: sticky;
+  top: 24px;
+  padding: 26px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+}
+
+.titre-aside {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.explication {
+  margin: 0 0 22px;
+  font-size: 13.5px;
   line-height: 1.55;
   color: var(--muted);
 }
 
-.actions {
-  max-width: 360px;
-  margin-top: 28px;
-}
-
 .refus {
-  margin: 0 0 4px;
-  padding: 10px 12px;
-  font-size: 0.86rem;
-  line-height: 1.45;
+  padding: 12px 14px;
+  margin: 0 0 14px;
+  font-size: 13.5px;
+  line-height: 1.55;
   color: var(--eta);
   background: var(--eta-soft);
-  border-radius: var(--r-champ);
+  border: 1px solid var(--eta-line);
+  border-radius: 12px;
 }
 
 .reassurance {
-  margin: 10px 0 0;
-  font-size: 11px;
-  text-align: center;
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
   color: var(--muted);
+}
+
+@media (max-width: 860px) {
+  .colonnes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .candidature {
+    position: static;
+  }
+
+  .fiche {
+    padding: 24px;
+  }
 }
 </style>

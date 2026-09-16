@@ -57,9 +57,13 @@ async function renvoyer(): Promise<void> {
 </template>
 
 <style scoped>
+/* Meme carte que les trois du formulaire : le canvas les cerne d'un filet et
+ * les arrondit a 22 px, l'ecran d'attente prend leur place. */
 .attente {
-  padding: 28px 24px;
+  padding: 32px;
   text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 22px;
 }
 
 .pastille {
@@ -69,19 +73,19 @@ async function renvoyer(): Promise<void> {
   display: grid;
   place-items: center;
   font-size: 22px;
-  background: var(--dom-soft, #e6f4f1);
+  background: var(--surface-2);
   border-radius: 50%;
 }
 
 h2 {
   margin: 0 0 12px;
   font-size: 20px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .corps {
   margin: 0 0 12px;
-  font-size: 14px;
+  font-size: 14.5px;
   line-height: 1.6;
 }
 
@@ -97,7 +101,7 @@ h2 {
   padding: 10px 12px;
   font-size: 13px;
   line-height: 1.5;
-  background: var(--dom-soft, #e6f4f1);
+  background: var(--dom-soft);
   border-radius: var(--r-champ);
 }
 </style>

@@ -9,11 +9,33 @@ const PAGES_OUVERTES = new Set([
   '/bienvenue',
   '/connexion',
   '/inscription',
-  '/inscription/entreprise',
   '/inscription/interimaire',
-  // Ouverte par necessite : on y arrive depuis un courriel, donc sans session.
-  // C'est meme la page qui en cree une.
+  // Ouvertes par necessite : on y arrive depuis un courriel, donc sans
+  // session. La premiere en cree meme une.
   '/verification',
+  '/mot-de-passe-oublie',
+  '/reinitialisation',
+]);
+
+/**
+ * Pages vitrine : lisibles par tout le monde, connecte ou non.
+ *
+ * Elles se distinguent de PAGES_OUVERTES sur un point precis. Une page ouverte
+ * est un guichet — connexion, inscription, reinitialisation : une session deja
+ * ouverte n'y a rien a faire, et le middleware renvoie donc vers l'espace du
+ * profil. Une page vitrine est de la lecture : renvoyer un candidat connecte
+ * qui ouvre les mentions legales serait absurde, et pour cette page-la
+ * juridiquement discutable.
+ */
+const PAGES_VITRINE = new Set([
+  '/accueil',
+  '/fonctionnement',
+  '/a-propos',
+  '/faq',
+  '/contact',
+  '/mentions-legales',
+  '/conditions-utilisation',
+  '/politique-confidentialite',
 ]);
 
 /**
@@ -30,13 +52,16 @@ const PAGES_EXTERNES = new Set(['/mon-espace', '/mon-compte']);
  * saurait pas couvrir.
  */
 const SECTIONS_PAR_ROLE: Partial<Record<RoleUtilisateur, readonly string[]>> = {
-  CANDIDAT: ['/missions', '/suivi', '/candidature', '/mon-profil'],
+  CANDIDAT: ['/tableau-de-bord', '/missions', '/suivi', '/candidature', '/mon-profil'],
   CLIENT: ['/etablissement'],
 };
 
 /** Page d'atterrissage apres connexion, par profil externe. */
 const ACCUEILS_EXTERNES: Partial<Record<RoleUtilisateur, string>> = {
-  CANDIDAT: '/missions',
+  // Le canvas fait du tableau de bord la premiere page de l'espace candidat :
+  // il recapitule ce qui manque au dossier, ce que l'ecran des missions ne dit
+  // pas.
+  CANDIDAT: '/tableau-de-bord',
   CLIENT: '/etablissement',
 };
 
@@ -61,8 +86,21 @@ export default defineNuxtRouteMiddleware(async (to) => {
     await rafraichir();
   }
 
+  // Une page vitrine s'affiche telle quelle. La session est tout de meme lue :
+  // c'est elle qui decide de la coque — un candidat connecte qui ouvre la FAQ
+  // reste dans son espace, avec sa barre laterale, plutot que de se voir
+  // proposer de se connecter.
+  if (PAGES_VITRINE.has(to.path)) {
+    return;
+  }
+
   if (!utilisateur.value) {
-    return ouverte ? undefined : navigateTo('/connexion');
+    if (ouverte) return;
+
+    // La racine est le vivier de l'agence : un visiteur y arrive par le nom de
+    // domaine, pas pour un back-office. Il est conduit a la vitrine, et non a
+    // un formulaire de connexion qu'il n'a pas demande.
+    return navigateTo(to.path === '/' ? '/accueil' : '/connexion');
   }
 
   const role = utilisateur.value.role;

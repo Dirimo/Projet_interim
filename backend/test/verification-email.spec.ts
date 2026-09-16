@@ -14,7 +14,6 @@ function inscription(email = ADRESSE) {
       nom: 'Moreau',
       prenom: 'Julie',
       telephone: '0612349999',
-      filieres: ['DOMICILE'],
       adresse: '4 rue des Lilas',
       codePostal: '44200',
       ville: 'Nantes',
@@ -81,7 +80,7 @@ describe('verification de l adresse e-mail', () => {
       await sInscrire();
 
       const jeton = jetonDuCourriel(app, ADRESSE);
-      const lignes = await prisma.jetonVerificationEmail.findMany();
+      const lignes = await prisma.jetonUsageUnique.findMany();
 
       expect(lignes).toHaveLength(1);
       expect(lignes[0]!.empreinte).not.toBe(jeton);
@@ -123,7 +122,7 @@ describe('verification de l adresse e-mail', () => {
 
       const jeton = jetonDuCourriel(app, ADRESSE);
 
-      await prisma.jetonVerificationEmail.updateMany({
+      await prisma.jetonUsageUnique.updateMany({
         data: { expireLe: new Date(Date.now() - 1000) },
       });
 

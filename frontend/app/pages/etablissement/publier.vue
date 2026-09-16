@@ -139,9 +139,6 @@ async function publier(): Promise<void> {
       body: {
         lieuId: lieuId.value,
         qualificationRequiseId: qualificationId.value,
-        // La filiere decoule du diplome : un SAAD n'intervient qu'au domicile,
-        // et la qualification choisie doit la couvrir.
-        filiere: qualification.value?.filieres.includes('DOMICILE') ? 'DOMICILE' : 'ETABLISSEMENT',
         dateDebut: date.value,
         dateFin: date.value,
         heureDebut: heureDebut.value,

@@ -5,6 +5,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { MailModule } from './mail/mail.module';
 import { HealthModule } from './health/health.module';
 import { CandidatsModule } from './candidats/candidats.module';
+import { DocumentsModule } from './documents/documents.module';
 import { ClientsModule } from './clients/clients.module';
 import { QualificationsModule } from './qualifications/qualifications.module';
 import { UtilisateursModule } from './utilisateurs/utilisateurs.module';
@@ -28,6 +29,7 @@ import { PropositionsModule } from './propositions/propositions.module';
     DonneesPubliquesModule,
     MatchingModule,
     MissionsModule,
+    DocumentsModule,
     MonProfilModule,
     PropositionsModule,
   ],

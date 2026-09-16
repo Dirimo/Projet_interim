@@ -8,6 +8,9 @@ import type {
   CandidatUpdate,
   DisponibilitesRemplace,
   DisponibiliteResume,
+  ExperienceCreate,
+  ExperienceResume,
+  ExperienceVerification,
   Indisponibilite,
   IndisponibiliteResume,
   PageResultat,
@@ -17,10 +20,20 @@ import type {
   UtilisateurSession,
 } from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { GeocodageService } from '../geocodage/geocodage.service';
 
 const avecQualifications = {
   include: { qualifications: { include: { qualification: true } } },
 } satisfies Prisma.CandidatDefaultArgs;
+
+// `Prisma.validator` plutot que `satisfies` : `DefaultArgs` ne decrit que
+// select et include, et laisserait `orderBy` s'elargir en `string`.
+const avecExperiences = Prisma.validator<Prisma.Candidat$experiencesArgs>()({
+  include: { qualification: { select: { libelle: true } } },
+  // Du poste le plus recent au plus ancien : c'est l'ordre dans lequel on lit
+  // un parcours, et celui dans lequel l'agence verifie.
+  orderBy: [{ debutLe: 'desc' }],
+});
 
 const avecTout = {
   include: {
@@ -28,6 +41,7 @@ const avecTout = {
       include: { qualification: true },
       orderBy: { qualification: { code: 'asc' } },
     },
+    experiences: avecExperiences,
     disponibilites: { orderBy: [{ jourSemaine: 'asc' }, { heureDebut: 'asc' }] },
     indisponibilites: { orderBy: { du: 'asc' } },
   },
@@ -36,6 +50,7 @@ const avecTout = {
 type CandidatComplet = Prisma.CandidatGetPayload<typeof avecQualifications>;
 type CandidatDetaille = Prisma.CandidatGetPayload<typeof avecTout>;
 type LienQualification = CandidatDetaille['qualifications'][number];
+type ExperienceChargee = CandidatDetaille['experiences'][number];
 
 /** Les colonnes @db.Date sont des dates civiles : on les rend sans fuseau. */
 function enDateIso(valeur: Date | null): string | null {
@@ -58,7 +73,6 @@ function versResume(candidat: CandidatComplet): CandidatResume {
     email: candidat.email,
     telephone: candidat.telephone,
     statut: candidat.statut,
-    filieres: candidat.filieres,
     ville: candidat.ville,
     codePostal: candidat.codePostal,
     rayonKm: candidat.rayonKm,
@@ -78,7 +92,6 @@ function versQualificationResume(
     qualificationId: lien.qualificationId,
     code: lien.qualification.code,
     libelle: lien.qualification.libelle,
-    filieres: lien.qualification.filieres,
     obtenueLe: enDateIso(lien.obtenueLe),
     expireLe,
     justificatifUrl: lien.justificatifUrl,
@@ -88,9 +101,46 @@ function versQualificationResume(
   };
 }
 
+/**
+ * Duree d'un poste en mois, ponderee par la quotite.
+ *
+ * Calculee ici et rendue au client plutot que laissee a son appreciation : le
+ * front afficherait sinon sa propre arithmetique, qui divergerait de celle du
+ * bareme, et un candidat lirait « 2 ans » sur sa fiche pour un score calcule
+ * sur dix-huit mois.
+ */
+function dureeEnMois(experience: ExperienceChargee, reference: Date): number {
+  const debut = experience.debutLe.getTime();
+  const fin = Math.min(experience.finLe?.getTime() ?? reference.getTime(), reference.getTime());
+  const jours = Math.max(0, fin - debut) / (24 * 3600 * 1000);
+
+  return Math.round((jours / 30.436875) * (experience.quotitePourcent / 100) * 10) / 10;
+}
+
+function versExperienceResume(experience: ExperienceChargee, reference: Date): ExperienceResume {
+  return {
+    id: experience.id,
+    employeur: experience.employeur,
+    intitule: experience.intitule,
+    qualificationId: experience.qualificationId,
+    qualificationLibelle: experience.qualification?.libelle ?? null,
+    debutLe: enDateIso(experience.debutLe)!,
+    finLe: enDateIso(experience.finLe),
+    quotitePourcent: experience.quotitePourcent,
+    description: experience.description,
+    verifieeLe: experience.verifieeLe ? experience.verifieeLe.toISOString() : null,
+    verifieePar: experience.verifieePar,
+    dureeMois: dureeEnMois(experience, reference),
+    enCours: experience.finLe === null,
+  };
+}
+
 @Injectable()
 export class CandidatsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly geocodage: GeocodageService,
+  ) {}
 
   async lister(query: CandidatListQuery, agenceId: string): Promise<PageResultat<CandidatResume>> {
     const where: Prisma.CandidatWhereInput = {
@@ -98,8 +148,6 @@ export class CandidatsService {
       // depuis la query - il vient du jeton.
       agenceId,
       ...(query.statut ? { statut: query.statut } : {}),
-      // Un candidat peut porter les deux filieres : on filtre avec `has`.
-      ...(query.filiere ? { filieres: { has: query.filiere } } : {}),
       ...(query.permisB === undefined ? {} : { permisB: query.permisB }),
       ...(query.recherche
         ? {
@@ -133,18 +181,22 @@ export class CandidatsService {
 
   async detail(id: string, agenceId: string): Promise<CandidatDetail> {
     const candidat = await this.exigerCandidat(id, agenceId, avecTout);
-    const aujourdHui = new Date().toISOString().slice(0, 10);
+    const maintenant = new Date();
+    const aujourdHui = maintenant.toISOString().slice(0, 10);
 
     return {
       ...versResume(candidat),
       adresse: candidat.adresse,
       latitude: candidat.latitude,
       longitude: candidat.longitude,
+      geocodePrecision: candidat.geocodePrecision,
+      geocodeLe: candidat.geocodeLe ? candidat.geocodeLe.toISOString() : null,
       visiteMedicaleLe: enDateIso(candidat.visiteMedicaleLe),
       vaccinationVerifiee: candidat.vaccinationVerifiee,
       qualificationsDetail: candidat.qualifications.map((lien) =>
         versQualificationResume(lien, aujourdHui),
       ),
+      experiences: candidat.experiences.map((poste) => versExperienceResume(poste, maintenant)),
       disponibilites: candidat.disponibilites.map((creneau): DisponibiliteResume => ({
         id: creneau.id,
         jourSemaine: creneau.jourSemaine,
@@ -171,18 +223,20 @@ export class CandidatsService {
         prenom: donnees.prenom,
         email: donnees.email,
         telephone: donnees.telephone,
-        filieres: donnees.filieres,
         adresse: donnees.adresse,
         codePostal: donnees.codePostal,
         ville: donnees.ville,
-        latitude: donnees.latitude ?? null,
-        longitude: donnees.longitude ?? null,
         rayonKm: donnees.rayonKm,
         permisB: donnees.permisB,
         vehicule: donnees.vehicule,
       },
       ...avecQualifications,
     });
+
+    // Apres l'ecriture, et sans la bloquer : la fiche existe meme si la BAN est
+    // indisponible, et `releve geocoder` reprendra les adresses restees sans
+    // point.
+    await this.geocodage.situer('candidat', candidat.id, donnees);
 
     return versResume(candidat);
   }
@@ -202,13 +256,21 @@ export class CandidatsService {
 
     const { visiteMedicaleLe, ...reste } = donnees;
 
-    await this.prisma.candidat.update({
+    const apres = await this.prisma.candidat.update({
       where: { id },
       data: {
         ...reste,
         ...(visiteMedicaleLe === undefined ? {} : { visiteMedicaleLe: versDate(visiteMedicaleLe) }),
       },
+      select: { adresse: true, codePostal: true, ville: true },
     });
+
+    // Une adresse retouchee invalide le point : on le recalcule, et s'il ne
+    // vient pas, on efface. Conserver les coordonnees de l'ancien domicile
+    // laisserait une distance mesurable, donc credible, et fausse.
+    if (!GeocodageService.memeAdresse(candidat, apres)) {
+      await this.geocodage.situer('candidat', id, apres);
+    }
 
     return this.detail(id, agenceId);
   }
@@ -325,6 +387,114 @@ export class CandidatsService {
   }
 
   /**
+   * Ajoute un poste au parcours du candidat.
+   *
+   * La ligne nait non verifiee, quelle que soit la main qui la saisit — y
+   * compris celle de l'agence. Verifier, c'est constater une piece ; le faire
+   * au moment de la saisie confondrait les deux gestes, et on ne saurait plus
+   * quelles lignes ont reellement ete controlees.
+   */
+  async ajouterExperience(
+    id: string,
+    donnees: ExperienceCreate,
+    agenceId: string,
+  ): Promise<CandidatDetail> {
+    await this.exigerCandidat(id, agenceId, avecQualifications);
+
+    if (donnees.qualificationId) {
+      const qualification = await this.prisma.qualification.findUnique({
+        where: { id: donnees.qualificationId },
+        select: { id: true },
+      });
+
+      if (!qualification) {
+        throw new NotFoundException(`Qualification ${donnees.qualificationId} introuvable`);
+      }
+    }
+
+    await this.prisma.experienceProfessionnelle.create({
+      data: {
+        candidatId: id,
+        employeur: donnees.employeur,
+        intitule: donnees.intitule,
+        qualificationId: donnees.qualificationId ?? null,
+        debutLe: versDate(donnees.debutLe)!,
+        finLe: versDate(donnees.finLe) ?? null,
+        quotitePourcent: donnees.quotitePourcent,
+        description: donnees.description ?? null,
+      },
+    });
+
+    return this.detail(id, agenceId);
+  }
+
+  /**
+   * Verifie — ou devalide — un poste, sur certificat de travail.
+   *
+   * C'est le seul geste qui fait entrer une experience dans le score. On trace
+   * qui l'a pose et quand, pour la meme raison que sur les qualifications : en
+   * cas de contestation d'un classement, c'est cette ligne qui justifie les
+   * points attribues.
+   */
+  async verifierExperience(
+    id: string,
+    experienceId: string,
+    donnees: ExperienceVerification,
+    utilisateur: UtilisateurSession,
+    agenceId: string,
+  ): Promise<CandidatDetail> {
+    await this.exigerCandidat(id, agenceId, avecQualifications);
+
+    const poste = await this.exigerExperience(id, experienceId);
+
+    await this.prisma.experienceProfessionnelle.update({
+      where: { id: poste.id },
+      data: donnees.verifiee
+        ? { verifieeLe: new Date(), verifieePar: utilisateur.email }
+        : { verifieeLe: null, verifieePar: null },
+    });
+
+    return this.detail(id, agenceId);
+  }
+
+  async retirerExperience(
+    id: string,
+    experienceId: string,
+    agenceId: string,
+  ): Promise<CandidatDetail> {
+    await this.exigerCandidat(id, agenceId, avecQualifications);
+
+    const poste = await this.exigerExperience(id, experienceId);
+
+    await this.prisma.experienceProfessionnelle.delete({ where: { id: poste.id } });
+
+    return this.detail(id, agenceId);
+  }
+
+  /**
+   * Charge un poste en verifiant qu'il appartient bien a cette fiche.
+   *
+   * Sans ce filtre, un identifiant devine permettrait d'agir sur l'experience
+   * d'un autre candidat — y compris d'une autre agence, puisque l'identifiant
+   * de la fiche ne suffirait plus a borner la portee.
+   */
+  private async exigerExperience(
+    candidatId: string,
+    experienceId: string,
+  ): Promise<{ id: string; verifieeLe: Date | null }> {
+    const poste = await this.prisma.experienceProfessionnelle.findFirst({
+      where: { id: experienceId, candidatId },
+      select: { id: true, verifieeLe: true },
+    });
+
+    if (!poste) {
+      throw new NotFoundException(`Experience ${experienceId} introuvable`);
+    }
+
+    return poste;
+  }
+
+  /**
    * Remplace l'integralite du planning hebdomadaire.
    *
    * Remplacement et pas edition ligne a ligne : le chevauchement se verifie sur
@@ -410,6 +580,19 @@ export class CandidatsService {
    * findFirst et pas findUnique : un candidat d'une autre agence doit repondre
    * 404, pas 403 - on ne confirme pas qu'il existe.
    */
+  /**
+   * Verifie qu'un candidat appartient bien a l'agence, et rend son identifiant.
+   *
+   * Sert aux pieces justificatives : `DocumentsService` ne connait qu'un
+   * identifiant de candidat, le cloisonnement doit donc etre tranche ici, comme
+   * pour toutes les autres routes du vivier.
+   */
+  async exigerAppartenance(id: string, agenceId: string): Promise<string> {
+    const candidat = await this.exigerCandidat(id, agenceId, { select: { id: true } });
+
+    return candidat.id;
+  }
+
   private async exigerCandidat<TArgs extends Prisma.CandidatDefaultArgs>(
     id: string,
     agenceId: string,

@@ -4,9 +4,12 @@ import type {
   CompletudeProfil,
   DeclarationDiplome,
   DisponibilitesRemplace,
+  ExperienceCreate,
   MonProfilUpdate,
   UtilisateurSession,
 } from '@releve/shared';
+import { TYPES_DOCUMENT } from '@releve/shared';
+import { DocumentsService } from '../documents/documents.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CandidatsService } from '../candidats/candidats.service';
 
@@ -24,6 +27,7 @@ export class MonProfilService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly candidats: CandidatsService,
+    private readonly documents: DocumentsService,
   ) {}
 
   /**
@@ -32,7 +36,10 @@ export class MonProfilService {
    * Le jeton d'un candidat ne porte pas d'agence : il faut la lire pour pouvoir
    * réutiliser les méthodes du back-office, qui cloisonnent toutes dessus.
    */
-  private async fiche(session: UtilisateurSession): Promise<{ id: string; agenceId: string }> {
+  /* Publique depuis que le controleur en a besoin pour les pieces justificatives :
+   * elles passent par `DocumentsService`, qui ne connait qu'un identifiant de
+   * candidat. */
+  async fiche(session: UtilisateurSession): Promise<{ id: string; agenceId: string }> {
     if (!session.candidatId) {
       throw new ForbiddenException("Ce compte n'est rattache a aucune fiche candidat");
     }
@@ -132,12 +139,67 @@ export class MonProfilService {
   }
 
   /**
+   * Déclaration d'un poste occupé.
+   *
+   * Même règle que pour le diplôme, et elle vaut la peine d'être répétée : la
+   * ligne part non vérifiée, et le schéma partagé ne porte aucun champ
+   * permettant de prétendre l'inverse. Tant que l'agence n'a pas vu un
+   * certificat de travail, ce poste s'affiche sur la fiche et ne rapporte pas
+   * un point. Sans cela, n'importe qui s'inventerait cinq ans de terrain et
+   * remonterait en tête des classements.
+   */
+  async declarerExperience(
+    donnees: ExperienceCreate,
+    session: UtilisateurSession,
+  ): Promise<CandidatDetail> {
+    const { id, agenceId } = await this.fiche(session);
+
+    return this.candidats.ajouterExperience(id, donnees, agenceId);
+  }
+
+  /**
+   * Retrait d'un poste déclaré.
+   *
+   * Comme pour les diplômes, seule une ligne encore non vérifiée peut être
+   * retirée par l'intéressé. Une expérience contrôlée par l'agence a servi à
+   * classer le candidat sur des missions passées ; la faire disparaître
+   * effacerait la trace de ce contrôle, et rendrait des scores archivés
+   * inexplicables.
+   */
+  async retirerExperience(
+    experienceId: string,
+    session: UtilisateurSession,
+  ): Promise<CandidatDetail> {
+    const { id, agenceId } = await this.fiche(session);
+
+    const poste = await this.prisma.experienceProfessionnelle.findFirst({
+      where: { id: experienceId, candidatId: id },
+      select: { id: true, verifieeLe: true },
+    });
+
+    if (!poste) {
+      throw new NotFoundException('Experience introuvable sur votre fiche');
+    }
+
+    if (poste.verifieeLe) {
+      throw new ForbiddenException(
+        "Cette experience a ete verifiee par l'agence : elle seule peut la retirer",
+      );
+    }
+
+    await this.prisma.experienceProfessionnelle.delete({ where: { id: poste.id } });
+
+    return this.candidats.detail(id, agenceId);
+  }
+
+  /**
    * Ce qu'il manque pour devenir proposable.
    *
    * Un intérimaire inscrit ne comprend pas pourquoi aucune mission ne lui est
    * accessible. Cette liste le dit en clair, dans l'ordre où ça bloque : sans
-   * diplôme vérifié la porte d'éligibilité refuse, sans adresse géocodée le
-   * matching écarte, sans disponibilité le score de créneau tombe à zéro.
+   * diplôme vérifié la porte d'éligibilité refuse, sans adresse localisée le
+   * matching écarte, sans disponibilité le score de créneau tombe à zéro, sans
+   * expérience déclarée la composante qui pèse le plus reste à zéro.
    */
   async completude(session: UtilisateurSession): Promise<CompletudeProfil> {
     const { id } = await this.fiche(session);
@@ -149,12 +211,13 @@ export class MonProfilService {
         latitude: true,
         longitude: true,
         telephone: true,
-        _count: { select: { disponibilites: true } },
+        _count: { select: { disponibilites: true, experiences: true } },
         qualifications: { select: { verifieeLe: true, expireLe: true } },
       },
     });
 
     const maintenant = new Date();
+    const pieces = await this.documents.compter(id);
 
     const attendus: { cle: string; libelle: string; rempli: boolean }[] = [
       {
@@ -173,6 +236,23 @@ export class MonProfilService {
         cle: 'disponibilites',
         libelle: 'Au moins un creneau de disponibilite',
         rempli: candidat._count.disponibilites > 0,
+      },
+      {
+        // Ne bloque rien : un profil sans experience declaree reste
+        // proposable, il marque simplement zero sur la composante qui pese le
+        // plus. Le dire ici est le seul endroit ou la personne l'apprendra
+        // avant de constater qu'aucune mission ne lui arrive.
+        cle: 'experience',
+        libelle: 'Au moins un poste declare, pour peser dans le classement',
+        rempli: candidat._count.experiences > 0,
+      },
+      {
+        // Ne bloque rien non plus, mais l'agence ne peut etablir ni contrat ni
+        // paie sans ces pieces : un dossier sans elles s'arrete a la
+        // candidature.
+        cle: 'documents',
+        libelle: 'Vos pieces justificatives : NIR, diplomes, CV, identite, RIB',
+        rempli: pieces >= TYPES_DOCUMENT.length,
       },
       {
         cle: 'telephone',

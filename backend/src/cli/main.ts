@@ -2,10 +2,13 @@ import 'reflect-metadata';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Command } from 'commander';
+import { typeDocumentSchema, TYPES_DOCUMENT } from '@releve/shared';
 import { readFile, writeFile } from 'node:fs/promises';
 import { AppModule } from '../app.module';
 import { FranceTravailClient } from '../donnees-publiques/france-travail.client';
 import { OffresService, ROMES_SECTEUR } from '../donnees-publiques/offres.service';
+import { DocumentsService } from '../documents/documents.service';
+import { GeocodageService } from '../geocodage/geocodage.service';
 
 /**
  * Outillage en ligne de commande de la chaine de donnees publiques.
@@ -157,6 +160,84 @@ programme
         );
       }
 
+      console.log('');
+    } finally {
+      await app.close();
+    }
+  });
+
+programme
+  .command('geocoder')
+  .description('Situe les candidats et les lieux d intervention restes sans coordonnees')
+  .option('--limite <n>', 'nombre maximum de fiches reprises par table', Number, 500)
+  .option('--pause <ms>', 'attente entre deux appels a la BAN', Number, 50)
+  .action(async (options) => {
+    const app = await contexte();
+    const geocodage = app.get(GeocodageService);
+
+    try {
+      if (!geocodage.estActif()) {
+        console.log('GEOCODAGE_ACTIF=false : rien a faire.');
+
+        return;
+      }
+
+      const rapport = await geocodage.rattraper(options.limite, options.pause);
+
+      console.log('');
+      console.log(`Fiches examinees  ${rapport.examines}`);
+      console.log(`Situees           ${rapport.situes}`);
+      console.log(`Restees sans point ${rapport.echecs}`);
+      console.log('');
+
+      if (rapport.echecs > 0) {
+        // Une adresse qui resiste au geocodage est presque toujours une adresse
+        // mal saisie, pas une panne : c'est a l'agence de la reprendre avec la
+        // personne, et l'afficher ici est le seul endroit ou elle le verra.
+        console.log('Les adresses restantes sont a corriger a la main : voir les avertissements.');
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
+programme
+  .command('purger:documents')
+  .description('Efface les pieces justificatives d un type au-dela d un age donne')
+  .requiredOption('--type <type>', 'NIR, DIPLOME, CV, PIECE_IDENTITE ou RIB')
+  .requiredOption('--jours <n>', 'age minimum du depot, en jours', Number)
+  .option('--sec', 'montre ce qui serait supprime, sans rien ecrire', false)
+  .action(async (options) => {
+    // Type et age sont exiges : une purge qui se declencherait sur des valeurs
+    // par defaut est une perte de donnees qui attend son heure.
+    const type = typeDocumentSchema.safeParse(String(options.type).toUpperCase());
+
+    if (!type.success) {
+      console.log(`Type inconnu. Attendus : ${TYPES_DOCUMENT.join(', ')}`);
+      process.exitCode = 1;
+
+      return;
+    }
+
+    if (!Number.isFinite(options.jours) || options.jours < 1) {
+      console.log('--jours doit etre un nombre de jours positif.');
+      process.exitCode = 1;
+
+      return;
+    }
+
+    const app = await contexte();
+    const documents = app.get(DocumentsService);
+
+    try {
+      const rapport = await documents.purger(type.data, options.jours, options.sec === true);
+
+      console.log('');
+      console.log(`Type                ${type.data}`);
+      console.log(`Deposees avant le   ${rapport.avant.toISOString().slice(0, 10)}`);
+      console.log(`Concernees          ${rapport.concernees}`);
+      console.log(`Supprimees          ${rapport.supprimees}`);
+      console.log(options.sec ? 'Simulation : rien n a ete ecrit.' : '');
       console.log('');
     } finally {
       await app.close();

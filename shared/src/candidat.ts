@@ -1,24 +1,32 @@
 import { z } from 'zod';
-import { filiereSchema, statutCandidatSchema, type Filiere, type StatutCandidat } from './enums';
+import { statutCandidatSchema, type StatutCandidat } from './enums';
 import type { DisponibiliteResume, IndisponibiliteResume } from './disponibilite';
+import type { ExperienceResume } from './experience';
+import type { PrecisionGeocodage } from './geocodage';
 import { MOTIF_CODE_POSTAL, MOTIF_DATE_ISO, MOTIF_EMAIL, MOTIF_TELEPHONE } from './motifs';
 import { paginationQuerySchema } from './pagination';
 
 /**
- * Un candidat peut etre eligible aux deux filieres : c'est justement la raison
- * pour laquelle on ne duplique pas sa fiche. `filieres` ne peut donc pas etre vide.
+ * La fiche de l'intervenant.
+ *
+ * Elle ne porte plus de filiere : la plateforme ne couvre que l'aide a
+ * domicile, et un champ qui ne prend qu'une valeur ne discrimine rien. Ce qui
+ * rend proposable, c'est le diplome verifie, la zone et les disponibilites.
  */
 export const candidatCreateSchema = z.object({
   nom: z.string().trim().min(1, 'Le nom est obligatoire').max(80),
   prenom: z.string().trim().min(1, 'Le prenom est obligatoire').max(80),
   email: z.string().trim().toLowerCase().regex(MOTIF_EMAIL, 'Adresse e-mail invalide'),
   telephone: z.string().trim().regex(MOTIF_TELEPHONE, 'Numero de telephone invalide'),
-  filieres: z.array(filiereSchema).min(1, 'Au moins une filiere est requise'),
   adresse: z.string().trim().min(1).max(160),
   codePostal: z.string().trim().regex(MOTIF_CODE_POSTAL, 'Code postal invalide'),
   ville: z.string().trim().min(1).max(80),
-  latitude: z.number().min(-90).max(90).optional(),
-  longitude: z.number().min(-180).max(180).optional(),
+
+  // Ni `latitude` ni `longitude` : elles sont calculees a partir de l'adresse
+  // par geocodage, jamais recues. Les accepter en entree laisserait n'importe
+  // quel compte se placer a cote du lieu d'une mission et remonter en tete de
+  // tous les classements — la composante « zone » du bareme ne lit rien
+  // d'autre. C'est la seule donnee du profil qui ne peut pas etre declarative.
   rayonKm: z.number().int().min(1).max(150).default(20),
   permisB: z.boolean().default(false),
   vehicule: z.boolean().default(false),
@@ -45,7 +53,6 @@ export const candidatUpdateSchema = candidatCreateSchema.partial().extend({
 export type CandidatUpdate = z.infer<typeof candidatUpdateSchema>;
 
 export const candidatListQuerySchema = paginationQuerySchema.extend({
-  filiere: filiereSchema.optional(),
   statut: statutCandidatSchema.optional(),
   recherche: z.string().trim().min(1).max(80).optional(),
   permisB: z.coerce.boolean().optional(),
@@ -60,7 +67,6 @@ export interface CandidatResume {
   email: string;
   telephone: string;
   statut: StatutCandidat;
-  filieres: Filiere[];
   ville: string;
   codePostal: string;
   rayonKm: number;
@@ -111,7 +117,6 @@ export interface QualificationCandidatResume {
   qualificationId: string;
   code: string;
   libelle: string;
-  filieres: Filiere[];
   obtenueLe: string | null;
   expireLe: string | null;
   justificatifUrl: string | null;
@@ -123,11 +128,16 @@ export interface QualificationCandidatResume {
 
 export interface CandidatDetail extends CandidatResume {
   adresse: string;
+  /** Calculee par geocodage. Null tant que l'adresse n'a pas pu etre situee. */
   latitude: number | null;
   longitude: number | null;
+  /** Finesse du point, pour ne pas faire passer une commune pour une rue. */
+  geocodePrecision: PrecisionGeocodage | null;
+  geocodeLe: string | null;
   visiteMedicaleLe: string | null;
   vaccinationVerifiee: boolean;
   qualificationsDetail: QualificationCandidatResume[];
+  experiences: ExperienceResume[];
   disponibilites: DisponibiliteResume[];
   indisponibilites: IndisponibiliteResume[];
 }

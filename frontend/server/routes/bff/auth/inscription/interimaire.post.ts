@@ -1,9 +1,9 @@
 import type { ReponseInscription } from '@releve/shared';
 
-const PARCOURS = new Set(['entreprise', 'interimaire']);
-
 /**
- * Inscription des deux profils.
+ * Inscription d'un intervenant — le seul parcours public. Les ESMS sont crees
+ * par l'agence depuis le back-office, leur statut reglementaire se verifiant
+ * sur piece.
  *
  * Contrairement a la connexion, ce relais ne pose aucun cookie : une
  * inscription n'ouvre plus de session. C'est le lien recu par courriel qui le
@@ -12,19 +12,11 @@ const PARCOURS = new Set(['entreprise', 'interimaire']);
  */
 export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig();
-  const profil = getRouterParam(event, 'profil') ?? '';
-
-  // La liste est close cote relais : sans elle, le segment d'URL serait
-  // recopie tel quel dans l'appel a l'API.
-  if (!PARCOURS.has(profil)) {
-    throw createError({ statusCode: 404, statusMessage: 'Parcours d inscription inconnu' });
-  }
-
   const donnees = await readBody<Record<string, unknown>>(event);
 
   try {
     const reponse = await $fetch<ReponseInscription>(
-      `${config.apiBase}/auth/inscription/${profil}`,
+      `${config.apiBase}/auth/inscription/interimaire`,
       { method: 'POST', body: donnees },
     );
 

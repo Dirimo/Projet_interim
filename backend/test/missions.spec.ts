@@ -28,7 +28,6 @@ describe('missions et candidatures', () => {
     return {
       lieuId: jeu.lieuA,
       qualificationRequiseId: jeu.qualification,
-      filiere: 'ETABLISSEMENT',
       dateDebut: demain,
       dateFin: demain,
       heureDebut: '07:00',
@@ -130,13 +129,13 @@ describe('missions et candidatures', () => {
         .expect(404);
     });
 
-    it('refuse une qualification qui ne couvre pas la filiere', async () => {
+    it('refuse une qualification qui n existe pas au referentiel', async () => {
       const reponse = await avec(app, client)
         .post('/api/missions')
-        .send(besoin({ filiere: 'DOMICILE' }))
-        .expect(400);
+        .send(besoin({ qualificationRequiseId: '00000000-0000-4000-8000-000000000000' }))
+        .expect(404);
 
-      expect(reponse.body.message).toMatch(/filiere/i);
+      expect(reponse.body.message).toMatch(/qualification/i);
     });
 
     it('refuse une date de fin anterieure au debut', async () => {
@@ -213,6 +212,42 @@ describe('missions et candidatures', () => {
     });
   });
 
+  /**
+   * Le lieu non localise, traite a la source.
+   *
+   * Sans coordonnees, la distance n'est mesurable pour personne : la porte
+   * ecarte le vivier entier, l'etablissement voit un classement vide, et depuis
+   * que la candidature traverse la meme porte, le candidat se voit refuser pour
+   * une erreur qui n'est pas la sienne. Le refus a la publication traite la
+   * cause plutot que le symptome.
+   */
+  describe('lieu non localise', () => {
+    it('refuse de publier une mission sur un lieu sans coordonnees', async () => {
+      await prisma.lieuIntervention.update({
+        where: { id: jeu.lieuA },
+        data: { latitude: null, longitude: null },
+      });
+
+      const reponse = await avec(app, client).post('/api/missions').send(besoin());
+
+      expect(reponse.status).toBe(400);
+      expect(reponse.body.message).toMatch(/localisee/i);
+      // Le message nomme l'adresse fautive et dit vers qui se tourner : les
+      // lieux se corrigent depuis le back-office, pas depuis l'espace client.
+      expect(reponse.body.message).toMatch(/2 rue A/);
+      expect(reponse.body.message).toMatch(/agence/i);
+
+      expect(await prisma.mission.count()).toBe(0);
+    });
+
+    it('publie normalement des que le lieu est localise', async () => {
+      const id = await publier();
+
+      expect(id).toBeDefined();
+      expect(await prisma.mission.count()).toBe(1);
+    });
+  });
+
   describe('candidature', () => {
     it('refuse un candidat sans le diplome exige, avec le motif', async () => {
       const id = await publier();
@@ -246,6 +281,85 @@ describe('missions et candidatures', () => {
         .expect(403);
 
       expect(reponse.body.message).toMatch(/valide/i);
+    });
+
+    /**
+     * La porte de la candidature est celle du classement, et c'est le point.
+     *
+     * Elle ne verifiait ici que le statut et le diplome. Une intervenante hors
+     * de son rayon pouvait donc postuler, obtenir un score, apparaitre chez
+     * l'etablissement — et rester introuvable dans le classement de l'agence,
+     * qui l'ecartait. Trois ecrans, trois verites.
+     */
+    it('refuse une mission au-dela du rayon declare, en chiffrant l ecart', async () => {
+      await diplomer();
+
+      // Le lieu part a Rennes, la candidate reste a Nantes avec 15 km de rayon.
+      await prisma.lieuIntervention.update({
+        where: { id: jeu.lieuA },
+        data: { latitude: 48.1173, longitude: -1.6778 },
+      });
+
+      await prisma.candidat.update({ where: { id: jeu.candidatA }, data: { rayonKm: 15 } });
+
+      const id = await publier();
+
+      const reponse = await avec(app, candidat)
+        .post(`/api/missions/${id}/candidatures`)
+        .send({})
+        .expect(403);
+
+      expect(reponse.body.message).toMatch(/rayon/i);
+      // Le motif chiffre l'ecart plutot que de dire « non » : la personne sait
+      // de combien elargir son rayon, ou qu'il n'y a rien a en attendre.
+      expect(reponse.body.message).toMatch(/\d+ km/);
+
+      const posees = await prisma.proposition.count({ where: { candidatId: jeu.candidatA } });
+      expect(posees).toBe(0);
+    });
+
+    it('refuse une mission sur une periode ou le candidat s est declare absent', async () => {
+      await diplomer();
+
+      const demain = new Date(Date.now() + 24 * 3600 * 1000);
+
+      await prisma.indisponibilite.create({
+        data: { candidatId: jeu.candidatA, du: demain, au: demain },
+      });
+
+      const id = await publier();
+
+      const reponse = await avec(app, candidat)
+        .post(`/api/missions/${id}/candidatures`)
+        .send({})
+        .expect(403);
+
+      expect(reponse.body.message).toMatch(/absence/i);
+    });
+
+    it('signale au candidat les missions hors de son rayon dans sa liste', async () => {
+      await diplomer();
+      await prisma.candidat.update({ where: { id: jeu.candidatA }, data: { rayonKm: 15 } });
+
+      const proche = await publier();
+
+      await prisma.lieuIntervention.update({
+        where: { id: jeu.lieuA },
+        data: { latitude: 48.1173, longitude: -1.6778 },
+      });
+
+      const reponse = await avec(app, candidat)
+        .get('/api/missions')
+        .query({ statut: 'PUBLIEE' })
+        .expect(200);
+
+      const ligne = reponse.body.donnees.find((m: { id: string }) => m.id === proche);
+
+      // La mission reste dans la liste : la masquer priverait la personne de
+      // l'information qui lui permettrait d'agir sur son rayon.
+      expect(ligne).toBeDefined();
+      expect(ligne.horsRayon).toBe(true);
+      expect(ligne.distanceKm).toBeGreaterThan(15);
     });
 
     it('enregistre la candidature comme deja acceptee par l interesse', async () => {

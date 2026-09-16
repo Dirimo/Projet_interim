@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { filiereSchema } from './enums';
 import { MOTIF_CODE_POSTAL, MOTIF_TELEPHONE } from './motifs';
 
 /**
@@ -16,13 +15,14 @@ export const monProfilUpdateSchema = z.object({
   prenom: z.string().trim().min(1, 'Le prenom est obligatoire').max(80).optional(),
   telephone: z.string().trim().regex(MOTIF_TELEPHONE, 'Numero de telephone invalide').optional(),
 
-  filieres: z.array(filiereSchema).min(1, 'Au moins une filiere est requise').optional(),
-
+  // L'adresse est modifiable, ses coordonnées ne le sont pas : elles sont
+  // recalculées par géocodage à chaque changement. Les accepter en entrée
+  // permettrait à un candidat de se placer à côté du lieu d'une mission et de
+  // remonter en tête de tous les classements, sans avoir à mentir sur quoi que
+  // ce soit de vérifiable.
   adresse: z.string().trim().min(1, 'L adresse est obligatoire').max(160).optional(),
   codePostal: z.string().trim().regex(MOTIF_CODE_POSTAL, 'Code postal invalide').optional(),
   ville: z.string().trim().min(1, 'La ville est obligatoire').max(80).optional(),
-  latitude: z.number().min(-90).max(90).optional(),
-  longitude: z.number().min(-180).max(180).optional(),
 
   // Le rayon pèse directement sur le matching : au-delà, les missions sont
   // écartées, elles ne sont pas simplement moins bien classées.

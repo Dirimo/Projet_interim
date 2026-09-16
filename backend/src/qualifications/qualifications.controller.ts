@@ -1,10 +1,8 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Post } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   qualificationCreateSchema,
-  qualificationListQuerySchema,
   type QualificationCreate,
-  type QualificationListQuery,
   type QualificationResume,
 } from '@releve/shared';
 import { Roles } from '../auth/auth.decorateurs';
@@ -23,12 +21,9 @@ export class QualificationsController {
    * ne contient aucune donnee nominative.
    */
   @Get()
-  @ApiOperation({ summary: 'Referentiel des qualifications, filtrable par filiere' })
-  @ApiQuery({ name: 'filiere', required: false, enum: ['DOMICILE', 'ETABLISSEMENT'] })
-  lister(
-    @Query(new ZodValidationPipe(qualificationListQuerySchema)) query: QualificationListQuery,
-  ): Promise<QualificationResume[]> {
-    return this.qualifications.lister(query);
+  @ApiOperation({ summary: 'Referentiel des qualifications' })
+  lister(): Promise<QualificationResume[]> {
+    return this.qualifications.lister();
   }
 
   // Le referentiel est partage par toutes les agences : y ajouter une ligne

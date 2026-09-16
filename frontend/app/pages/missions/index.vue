@@ -4,7 +4,6 @@ import type { MissionResume, PageResultat } from '@releve/shared';
 useHead({ title: 'Missions disponibles - Relève' });
 
 const { requete } = useApi();
-const { utilisateur } = useSession();
 
 /**
  * Les trois filtres de la maquette, traduits en intentions reelles.
@@ -14,7 +13,7 @@ const { utilisateur } = useSession();
  * mesurable passent en fin de liste plutot qu'en tete : une distance inconnue
  * n'est pas une distance nulle.
  */
-const FILTRES = ['A proximite', "Aujourd'hui", 'Mieux remunerees'] as const;
+const FILTRES = ['À proximité', "Aujourd'hui", 'Mieux rémunérées'] as const;
 
 const recherche = ref('');
 const filtre = ref<(typeof FILTRES)[number]>(FILTRES[0]);
@@ -79,13 +78,14 @@ const missions = computed(() => {
     tauxHoraire: tauxCourt(mission.tauxHoraire),
     taux: mission.tauxHoraire ?? 0,
     distance: mission.distanceKm,
+    horsRayon: mission.horsRayon === true,
   }));
 
-  if (filtre.value === 'Mieux remunerees') {
+  if (filtre.value === 'Mieux rémunérées') {
     return [...cartes].sort((a, b) => b.taux - a.taux);
   }
 
-  if (filtre.value === 'A proximite') {
+  if (filtre.value === 'À proximité') {
     return [...cartes].sort(
       (a, b) => (a.distance ?? Number.POSITIVE_INFINITY) - (b.distance ?? Number.POSITIVE_INFINITY),
     );
@@ -93,267 +93,321 @@ const missions = computed(() => {
 
   return cartes;
 });
-
-const prenom = computed(() => prenomAffiche(utilisateur.value?.email));
 </script>
-
 <template>
   <section class="missions">
-    <header class="entete">
-      <div class="salutation">
-        <p class="bonjour">Bonjour {{ prenom }}</p>
-        <h1>Trouvez votre mission</h1>
+    <!-- Le canvas ne salue plus ici : « Bonjour » et l'avatar appartiennent au
+         tableau de bord, qui ouvre desormais l'espace candidat. -->
+    <h1>Trouvez votre mission</h1>
+
+    <div class="barre">
+      <div class="recherche">
+        <AppIcon nom="search" :taille="18" />
+        <label class="sr-only" for="recherche">Rechercher une mission</label>
+        <input
+          id="recherche"
+          v-model="recherche"
+          type="search"
+          placeholder="Ville, établissement ou date"
+        />
       </div>
-      <AppAvatar :initiales="initiales(prenom)" teinte="lavande" />
-    </header>
 
-    <div class="recherche">
-      <AppIcon nom="search" :taille="18" />
-      <label class="sr-only" for="recherche">Rechercher une mission</label>
-      <input
-        id="recherche"
-        v-model="recherche"
-        type="search"
-        placeholder="Ville, etablissement ou date"
-      />
-      <AppIcon nom="sliders" :taille="18" />
+      <div class="filtres">
+        <button
+          v-for="option in FILTRES"
+          :key="option"
+          type="button"
+          class="filtre"
+          :class="{ actif: filtre === option }"
+          :aria-pressed="filtre === option"
+          @click="filtre = option"
+        >
+          {{ option }}
+        </button>
+      </div>
     </div>
-
-    <div class="filtres">
-      <button
-        v-for="option in FILTRES"
-        :key="option"
-        type="button"
-        class="filtre"
-        :aria-pressed="filtre === option"
-        @click="filtre = option"
-      >
-        <AppBadge :teinte="filtre === option ? 'vert' : 'neutre'">{{ option }}</AppBadge>
-      </button>
-    </div>
-
-    <h2 class="titre-liste">
-      {{ missions.length }} {{ missions.length > 1 ? 'missions' : 'mission' }} pres de vous
-    </h2>
 
     <p v-if="error" class="vide">
-      Missions indisponibles pour le moment. Reessayer dans un instant.
+      Missions indisponibles pour le moment. Réessayer dans un instant.
     </p>
 
-    <p v-else-if="missions.length === 0" class="vide">
-      Aucune mission ne correspond a cette recherche.
-    </p>
+    <template v-else>
+      <h2 class="titre-liste">
+        {{ missions.length }} {{ missions.length > 1 ? 'missions' : 'mission' }} près de vous
+      </h2>
 
-    <ul v-else class="liste">
-      <li v-for="mission in missions" :key="mission.id">
-        <NuxtLink :to="`/missions/${mission.id}`" class="lien">
-          <AppCarte variante="posee" class="carte">
-            <div class="resume">
-              <AppAvatar :initiales="mission.etablissement.initiales" />
-              <div class="copie">
-                <p class="nom">{{ mission.etablissement.nom }}</p>
-                <p class="lieu">
-                  {{ mission.etablissement.localisation }}
-                  <template v-if="mission.distance !== null">
-                    &middot; {{ mission.distance }} km
-                  </template>
-                </p>
-              </div>
-              <AppBadge v-if="mission.urgente" teinte="corail">Urgent</AppBadge>
-            </div>
+      <p v-if="missions.length === 0" class="vide">
+        Aucune mission ne correspond à cette recherche.
+      </p>
 
-            <div class="details">
-              <AppBadge teinte="vert">{{ mission.jour }}</AppBadge>
-              <AppBadge>{{ mission.horaires }}</AppBadge>
-            </div>
+      <ul v-else class="liste">
+        <li v-for="mission in missions" :key="mission.id">
+          <NuxtLink :to="`/missions/${mission.id}`" class="carte">
+            <span class="pastille">{{ mission.etablissement.initiales }}</span>
 
-            <div class="pied">
-              <p class="taux">{{ mission.tauxHoraire }}</p>
-              <span class="ouvrir"><AppIcon nom="arrow-right" :taille="16" /></span>
-            </div>
-          </AppCarte>
-        </NuxtLink>
-      </li>
-    </ul>
+            <span class="copie">
+              <span class="ligne-nom">
+                <span class="nom">{{ mission.etablissement.nom }}</span>
+                <span v-if="mission.urgente" class="urgent">Urgent</span>
+              </span>
+
+              <span class="lieu">
+                {{ mission.etablissement.localisation }}
+                <template v-if="mission.distance !== null">
+                  &middot; {{ mission.distance }} km
+                </template>
+                &middot; {{ mission.tauxHoraire }}
+              </span>
+
+              <!-- Information sans equivalent dans le canvas, mais decisive :
+                   une mission hors rayon ne sera jamais proposee. -->
+              <span v-if="mission.horsRayon" class="hors-rayon">
+                Au-delà de votre rayon de déplacement
+              </span>
+            </span>
+
+            <span class="creneaux">
+              <span class="jour">{{ mission.jour }}</span>
+              <span class="heures">{{ mission.horaires }}</span>
+            </span>
+
+            <span class="ouvrir">Voir le détail</span>
+          </NuxtLink>
+        </li>
+      </ul>
+    </template>
   </section>
 </template>
 
 <style scoped>
-.missions {
-  padding-block: 28px 0;
-}
-
-.entete {
-  display: flex;
-  gap: 16px;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 18px;
-}
-
-.bonjour {
-  margin: 0 0 4px;
-  font-size: 13px;
-  color: var(--muted);
-}
-
 h1 {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 400;
+  margin: 0 0 24px;
+  font-size: clamp(28px, 5vw, 34px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.barre {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 18px;
 }
 
 .recherche {
   display: flex;
-  gap: 10px;
+  flex: 1;
+  gap: 12px;
   align-items: center;
-  height: 48px;
-  max-width: 560px;
-  padding-inline: 14px;
+  min-width: 260px;
+  padding: 13px 16px;
   color: var(--muted);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--r-carte);
-}
-
-.recherche input {
-  flex: 1;
-  min-width: 0;
-  font-family: var(--sans);
-  font-size: 13px;
-  color: var(--ink);
-  background: none;
-  border: 0;
-}
-
-.recherche input::placeholder {
-  color: var(--muted);
-}
-
-.recherche input:focus-visible {
-  outline: none;
+  border-radius: 14px;
 }
 
 .recherche:focus-within {
-  outline: 2px solid var(--dom);
-  outline-offset: 2px;
+  border-color: var(--dom);
+}
+
+.recherche input {
+  width: 100%;
+  font-family: var(--sans);
+  font-size: 15px;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  outline: none;
 }
 
 .filtres {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 18px;
+  gap: 10px;
 }
 
 .filtre {
-  padding: 0;
-  background: none;
-  border: 0;
+  padding: 11px 15px;
+  font-family: var(--sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--dom-fonce);
+  white-space: nowrap;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 24px;
   cursor: pointer;
 }
 
-.filtre:focus-visible {
+.filtre.actif {
+  color: var(--surface);
+  background: var(--dom);
+  border-color: var(--dom);
+}
+
+.filtre:focus-visible,
+.carte:focus-visible {
   outline: 2px solid var(--dom);
-  outline-offset: 3px;
-  border-radius: 999px;
+  outline-offset: 2px;
 }
 
 .titre-liste {
-  margin: 22px 0 12px;
+  margin: 0 0 16px;
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
-.vide {
-  margin: 0;
-  font-size: 14px;
-  color: var(--muted);
-}
-
-/* Le Figma empile les cartes ; sur le web elles se rangent en grille des que
- * la largeur le permet. */
 .liste {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 12px;
-  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   padding: 0;
+  margin: 0;
   list-style: none;
-}
-
-.lien {
-  display: block;
-  height: 100%;
-  color: inherit;
-  text-decoration: none;
-}
-
-.lien:focus-visible {
-  outline: 2px solid var(--dom);
-  outline-offset: 3px;
-  border-radius: var(--r-carte);
 }
 
 .carte {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-  height: 100%;
+  gap: 18px;
+  align-items: center;
+  padding: 20px 22px;
+  color: inherit;
+  text-decoration: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
 }
 
-.resume {
+.carte:hover {
+  border-color: var(--dom);
+}
+
+.pastille {
   display: flex;
-  gap: 10px;
+  flex: none;
   align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--dom);
+  background: var(--surface-2);
+  border-radius: 12px;
 }
 
 .copie {
+  display: flex;
   flex: 1;
+  flex-direction: column;
   min-width: 0;
 }
 
+.ligne-nom {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
 .nom {
-  margin: 0 0 3px;
-  font-size: 15px;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.urgent {
+  flex: none;
+  padding: 4px 9px;
+  font-size: 11px;
   font-weight: 700;
+  color: var(--eta);
+  background: var(--eta-soft);
+  border-radius: 20px;
 }
 
 .lieu {
-  margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 
-.details {
+.hors-rayon {
+  margin-top: 3px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--eta);
+}
+
+.creneaux {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.pied {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: auto;
+.jour,
+.heures {
+  padding: 6px 11px;
+  font-size: 12.5px;
+  white-space: nowrap;
+  border-radius: 20px;
 }
 
-.taux {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--dom-fonce);
+.jour {
+  font-weight: 600;
+  color: var(--dom);
+  background: var(--surface-2);
+}
+
+.heures {
+  color: var(--muted);
+  background: var(--ground);
+  border: 1px solid var(--line);
 }
 
 .ouvrir {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  color: var(--dom-fonce);
-  background: var(--dom-soft);
-  border-radius: 999px;
+  flex: none;
+  min-width: 86px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dom);
+  text-align: right;
+}
+
+/* Le canvas dessine la carte sur une seule ligne, ce qui ne tient plus des que
+ * la colonne se resserre : les trois blocs passent alors les uns sous les
+ * autres, la pastille restant en tete. */
+@media (max-width: 760px) {
+  .carte {
+    flex-wrap: wrap;
+    gap: 12px 16px;
+  }
+
+  .copie {
+    flex-basis: calc(100% - 60px);
+  }
+
+  .creneaux,
+  .ouvrir {
+    min-width: 0;
+    text-align: left;
+  }
+}
+
+.vide {
+  padding: 40px;
+  margin: 0;
+  font-size: 15px;
+  color: var(--muted);
+  text-align: center;
+  background: var(--surface);
+  border: 1px dashed var(--line-forte);
+  border-radius: 18px;
 }
 
 .sr-only {

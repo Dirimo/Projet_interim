@@ -8,6 +8,7 @@ import {
   type BesoinAPourvoir,
   type ProfilAEvaluer,
 } from '../src/matching/score';
+import type { ExperienceEvaluee } from '../src/matching/experience';
 
 /**
  * Le bareme, teste seul.
@@ -20,7 +21,6 @@ import {
 /** Une mission de reference : demain, 07:00-14:00, a Nantes. */
 function besoin(surcharge: Partial<BesoinAPourvoir> = {}): BesoinAPourvoir {
   return {
-    filiere: 'DOMICILE',
     // Un lundi, pour que le jour de la semaine soit previsible.
     dateDebut: new Date('2026-09-14T00:00:00Z'),
     dateFin: new Date('2026-09-14T00:00:00Z'),
@@ -32,16 +32,34 @@ function besoin(surcharge: Partial<BesoinAPourvoir> = {}): BesoinAPourvoir {
   };
 }
 
+/** Une date située N mois en arrière, pour écrire des durées lisibles. */
+function ilYAMois(mois: number): Date {
+  const date = new Date();
+  date.setMonth(date.getMonth() - mois);
+
+  return date;
+}
+
+/** Un poste toujours occupé, relevant du diplôme exigé sauf mention contraire. */
+function poste(surcharge: Partial<ExperienceEvaluee> = {}): ExperienceEvaluee {
+  return {
+    debutLe: ilYAMois(24),
+    finLe: null,
+    quotitePourcent: 100,
+    qualifiante: true,
+    ...surcharge,
+  };
+}
+
 /** Un profil eligible : actif, diplome, sur place, disponible tout le creneau. */
 function profil(surcharge: Partial<ProfilAEvaluer> = {}): ProfilAEvaluer {
   return {
     statut: 'ACTIF',
-    filieres: ['DOMICILE'],
     rayonKm: 20,
     latitude: 47.2184,
     longitude: -1.5536,
-    diplomeObtenuLe: new Date('2016-06-30'),
     diplomeValide: true,
+    experiences: [],
     creneaux: [
       { jourSemaine: 1, heureDebut: '07:00', heureFin: '14:00', valideDu: null, valideAu: null },
     ],
@@ -156,12 +174,6 @@ describe('porte d eligibilite', () => {
     expect(motifs.map((m) => m.cle)).toContain('statut');
   });
 
-  it('ecarte une filiere absente du profil', () => {
-    const motifs = motifsExclusion(profil({ filieres: ['ETABLISSEMENT'] }), besoin());
-
-    expect(motifs.map((m) => m.cle)).toContain('filiere');
-  });
-
   it('ecarte un diplome non detenu ou expire', () => {
     const motifs = motifsExclusion(profil({ diplomeValide: false }), besoin());
 
@@ -213,7 +225,13 @@ describe('porte d eligibilite', () => {
 
 describe('score', () => {
   it('donne le maximum a un profil parfait', () => {
-    const score = calculerScore(profil(), besoin());
+    // Le profil « ideal » porte desormais cinq ans de terrain verifie : sans
+    // experience, la composante qui pese le plus reste a zero, et c'est le
+    // propos du bareme.
+    const score = calculerScore(
+      profil({ experiences: [poste({ debutLe: ilYAMois(60) })] }),
+      besoin(),
+    );
 
     expect(score.total).toBe(100);
     expect(score.composantes).toHaveLength(3);
@@ -222,7 +240,7 @@ describe('score', () => {
   it('decompose toujours le total en trois lignes explicables', () => {
     const score = calculerScore(profil(), besoin());
 
-    expect(score.composantes.map((c) => c.cle)).toEqual(['competences', 'zone', 'disponibilite']);
+    expect(score.composantes.map((c) => c.cle)).toEqual(['experience', 'zone', 'disponibilite']);
     expect(score.composantes.reduce((somme, c) => somme + c.points, 0)).toBe(score.total);
 
     for (const composante of score.composantes) {
@@ -256,15 +274,65 @@ describe('score', () => {
     expect(note?.explication).toMatch(/71 %/);
   });
 
-  it('valorise l anciennete du diplome sans la laisser tout emporter', () => {
-    const jeune = calculerScore(profil({ diplomeObtenuLe: new Date() }), besoin());
-    const ancien = calculerScore(profil({ diplomeObtenuLe: new Date('2010-01-01') }), besoin());
+  it('ne donne aucun point d experience a un profil qui n en declare pas', () => {
+    const note = calculerScore(profil(), besoin()).composantes.find((c) => c.cle === 'experience');
 
-    const noteJeune = jeune.composantes.find((c) => c.cle === 'competences')?.points ?? 0;
-    const noteAncienne = ancien.composantes.find((c) => c.cle === 'competences')?.points ?? 0;
+    // Le diplome ne rapporte plus rien : la porte d'eligibilite l'exige deja de
+    // tout le monde, donc lui attribuer des points ajouterait la meme constante
+    // a chaque candidat classe, sans en departager aucun.
+    expect(note?.points).toBe(0);
+    expect(note?.explication).toMatch(/Aucune experience/);
+  });
 
-    // Le socle reste majoritaire : un diplome recent garde 60 % de la composante.
-    expect(noteJeune).toBe(24);
-    expect(noteAncienne).toBe(40);
+  it('classe devant celui qui a le plus de terrain verifie', () => {
+    const debutant = calculerScore(
+      profil({ experiences: [poste({ debutLe: ilYAMois(6) })] }),
+      besoin(),
+    );
+
+    const aguerri = calculerScore(
+      profil({ experiences: [poste({ debutLe: ilYAMois(48) })] }),
+      besoin(),
+    );
+
+    expect(aguerri.total).toBeGreaterThan(debutant.total);
+  });
+
+  it('plafonne l experience a cinq ans', () => {
+    const cinqAns = calculerScore(
+      profil({ experiences: [poste({ debutLe: ilYAMois(60) })] }),
+      besoin(),
+    );
+
+    const vingtAns = calculerScore(
+      profil({ experiences: [poste({ debutLe: ilYAMois(240) })] }),
+      besoin(),
+    );
+
+    const points = (score: typeof cinqAns): number =>
+      score.composantes.find((c) => c.cle === 'experience')?.points ?? 0;
+
+    expect(points(cinqAns)).toBe(40);
+    expect(points(vingtAns)).toBe(40);
+  });
+
+  it('ne compte une experience hors referentiel que pour moitie', () => {
+    const metier = calculerScore(
+      profil({ experiences: [poste({ debutLe: ilYAMois(30) })] }),
+      besoin(),
+    );
+
+    const horsMetier = calculerScore(
+      profil({ experiences: [poste({ debutLe: ilYAMois(30), qualifiante: false })] }),
+      besoin(),
+    );
+
+    const points = (score: typeof metier): number =>
+      score.composantes.find((c) => c.cle === 'experience')?.points ?? 0;
+
+    expect(points(horsMetier)).toBeCloseTo(points(metier) / 2, 0);
+    expect(horsMetier.composantes.find((c) => c.cle === 'experience')?.explication).toMatch(
+      /moitie/,
+    );
   });
 });

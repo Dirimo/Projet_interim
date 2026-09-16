@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import type { ClientDetail } from '@releve/shared';
-import { TYPE_CLIENT_LIBELLES, TYPE_LIEU_LIBELLES } from '@releve/shared';
+import {
+  STATUT_REGLEMENTAIRE_LIBELLES,
+  TYPE_CLIENT_LIBELLES,
+  TYPE_LIEU_LIBELLES,
+} from '@releve/shared';
 
 const route = useRoute();
 const { requete } = useApi();
@@ -32,12 +36,42 @@ const introuvable = computed(
         <h1>{{ client.raisonSociale }}</h1>
         <span class="pastille">{{ TYPE_CLIENT_LIBELLES[client.type] }}</span>
         <span v-if="!client.actif" class="pastille inactif">Inactif</span>
+        <span v-if="client.statutReglementaire" class="pastille regime">
+          {{ STATUT_REGLEMENTAIRE_LIBELLES[client.statutReglementaire] }}
+        </span>
+        <span v-else class="pastille manque">Statut a renseigner</span>
       </div>
 
       <dl class="proprietes">
         <div>
           <dt>SIRET</dt>
           <dd>{{ client.siret }}</dd>
+        </div>
+        <!--
+          Le justificatif change de nature selon le regime : un numero de
+          declaration, un agrement, ou un FINESS accompagne de son arrete. On
+          affiche celui qui correspond, et l'absence est nommee plutot que
+          laissee vide — c'est elle qui bloque l'activation de la fiche.
+        -->
+        <div>
+          <dt>Statut reglementaire</dt>
+          <dd>
+            <template v-if="client.statutReglementaire">
+              {{ STATUT_REGLEMENTAIRE_LIBELLES[client.statutReglementaire] }}
+              <template v-if="client.numeroSap"> &middot; {{ client.numeroSap }}</template>
+              <template v-if="client.numeroAgrement">
+                &middot; agrement {{ client.numeroAgrement }}
+              </template>
+              <template v-if="client.numeroFiness">
+                &middot; FINESS {{ client.numeroFiness }}
+              </template>
+              <template v-if="client.arreteReference">
+                &middot; arrete {{ client.arreteReference }}
+                <template v-if="client.arreteDate"> du {{ client.arreteDate }}</template>
+              </template>
+            </template>
+            <span v-else class="manquant">a renseigner avant activation</span>
+          </dd>
         </div>
         <div>
           <dt>Convention collective</dt>
@@ -65,6 +99,12 @@ const introuvable = computed(
       <p class="note">
         La convention collective affichee ici est celle de l entreprise utilisatrice. C est elle qui
         fixe le salaire de reference de l interimaire, pas celle de son employeur.
+      </p>
+
+      <p v-if="!client.statutReglementaire" class="note avertissement">
+        Le statut reglementaire n est pas renseigne : declaration SAP, agrement, ou autorisation
+        departementale au titre du CASF. Il se saisit sur piece, et tant qu il manque la structure
+        ne peut pas etre activee — c est lui qui dit ce qu elle a le droit de faire.
       </p>
 
       <h2>
@@ -250,6 +290,22 @@ dd {
   color: var(--dom);
   background: var(--dom-soft);
   border-color: var(--dom);
+}
+
+.pastille.regime {
+  background: var(--dom-soft);
+}
+
+.pastille.manque {
+  background: var(--eta-soft);
+  color: var(--eta);
+}
+
+.note.avertissement {
+  padding: 12px 14px;
+  background: var(--eta-soft);
+  border-radius: var(--r-champ);
+  color: var(--eta);
 }
 
 .pastille.inactif {

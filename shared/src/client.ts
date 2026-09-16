@@ -4,13 +4,14 @@ import { MOTIF_EMAIL, MOTIF_TELEPHONE } from './motifs';
 import { paginationQuerySchema } from './pagination';
 import { siretValide } from './siret';
 import { type LieuResume } from './lieu';
+import { champsHabilitation, verifierHabilitation, type Habilitation } from './habilitation';
 
 /**
  * Le client est l'entreprise utilisatrice qui signe la mission. Ce n'est pas le
  * lieu ou l'interimaire travaille : un SAAD signe, l'intervention a lieu chez
  * le beneficiaire. Les deux notions sont donc deux modeles distincts.
  */
-export const clientCreateSchema = z.object({
+const clientBase = z.object({
   raisonSociale: z.string().trim().min(1, 'La raison sociale est obligatoire').max(160),
   siret: z
     .string()
@@ -38,15 +39,29 @@ export const clientCreateSchema = z.object({
     .regex(MOTIF_EMAIL, 'Adresse e-mail invalide')
     .optional(),
   contactTel: z.string().trim().regex(MOTIF_TELEPHONE, 'Numero de telephone invalide').optional(),
+
+  // Statut reglementaire et sa piece justificative. Ce que chacun rend
+  // obligatoire est verifie par `verifierHabilitation` : le champ attendu
+  // depend du statut, un schema plat ne saurait pas l'exprimer seul.
+  ...champsHabilitation,
 });
+
+export const clientCreateSchema = clientBase.superRefine(verifierHabilitation);
 
 export type ClientCreate = z.infer<typeof clientCreateSchema>;
 
 // Le SIRET n'est pas modifiable : un autre SIRET, c'est une autre entite
 // juridique, donc un autre client - pas une correction de fiche.
-export const clientUpdateSchema = clientCreateSchema.omit({ siret: true }).partial().extend({
-  actif: z.boolean().optional(),
-});
+//
+// Le statut reglementaire, lui, se corrige : une structure declaree obtient son
+// autorisation, un agrement arrive a echeance. Changer de statut oblige a
+// fournir le justificatif correspondant dans la meme requete — la piece
+// precedente ne prouve plus rien pour le nouveau regime.
+export const clientUpdateSchema = clientBase
+  .omit({ siret: true })
+  .partial()
+  .extend({ actif: z.boolean().optional() })
+  .superRefine(verifierHabilitation);
 
 export type ClientUpdate = z.infer<typeof clientUpdateSchema>;
 
@@ -57,7 +72,7 @@ export const clientListQuerySchema = paginationQuerySchema.extend({
 
 export type ClientListQuery = z.infer<typeof clientListQuerySchema>;
 
-export interface ClientResume {
+export interface ClientResume extends Habilitation {
   id: string;
   raisonSociale: string;
   siret: string;

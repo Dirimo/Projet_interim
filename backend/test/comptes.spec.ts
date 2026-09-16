@@ -1,7 +1,8 @@
 import type { INestApplication } from '@nestjs/common';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { avec, connecter, type Session } from './aide';
 import { creerApp, MOT_DE_PASSE, prisma, reinitialiser, type Jeu } from './fixtures';
+import { MailService } from '../src/mail/mail.service';
 
 /**
  * Les garde-fous d'administration protegent contre deux accidents : se
@@ -209,6 +210,81 @@ describe('gestion des comptes', () => {
         .expect(204);
 
       await connecter(app, 'charge.a@test.example', 'MotDePasseFinal2026');
+    });
+  });
+
+  /**
+   * Un mot de passe qui change sans que son proprietaire le sache, c'est
+   * exactement ce que fait quelqu'un qui vient de prendre le compte. Le
+   * courriel est le seul moment ou la personne peut s'en apercevoir.
+   */
+  describe('avertissement par courriel', () => {
+    let mail: MailService;
+
+    beforeAll(() => {
+      mail = app.get(MailService);
+    });
+
+    beforeEach(() => {
+      mail.viderBoite();
+    });
+
+    it('previent l interesse quand il change son propre mot de passe', async () => {
+      const session = await connecter(app, 'charge.a@test.example', 'MotDePasseFinal2026');
+
+      await avec(app, session)
+        .post('/api/auth/mot-de-passe')
+        .send({ ancien: 'MotDePasseFinal2026', nouveau: 'MotDePasseAvertit2026' })
+        .expect(204);
+
+      const courriel = mail.dernierPour('charge.a@test.example');
+
+      expect(courriel).toBeDefined();
+      expect(courriel!.sujet).toMatch(/modifie/i);
+      expect(courriel!.texte).toMatch(/sessions ont ete fermees/i);
+      expect(courriel!.texte).toMatch(/compte est probablement compromis/i);
+    });
+
+    /** Un courriel garde une trace permanente : le mot de passe n'y figure jamais. */
+    it('ne fait jamais figurer le mot de passe dans le message', async () => {
+      const session = await connecter(app, 'charge.a@test.example', 'MotDePasseAvertit2026');
+
+      await avec(app, session)
+        .post('/api/auth/mot-de-passe')
+        .send({ ancien: 'MotDePasseAvertit2026', nouveau: 'MotDePasseSecret2026' })
+        .expect(204);
+
+      const courriel = mail.dernierPour('charge.a@test.example');
+
+      expect(courriel!.texte).not.toContain('MotDePasseAvertit2026');
+      expect(courriel!.texte).not.toContain('MotDePasseSecret2026');
+      expect(courriel!.html).not.toContain('MotDePasseSecret2026');
+    });
+
+    it('dit que l operation vient de l agence quand c est une reinitialisation', async () => {
+      await avec(app, admin)
+        .post(`/api/utilisateurs/${jeu.chargeA}/mot-de-passe`)
+        .send({ motDePasse: 'MotDePasseParAgence2026' })
+        .expect(201);
+
+      const courriel = mail.dernierPour('charge.a@test.example');
+
+      expect(courriel).toBeDefined();
+      expect(courriel!.sujet).toMatch(/reinitialise/i);
+      expect(courriel!.texte).toMatch(/votre agence/i);
+      expect(courriel!.texte).not.toContain('MotDePasseParAgence2026');
+    });
+
+    /** Un mot de passe refuse n'a rien change : avertir serait un faux signal. */
+    it('n envoie rien quand le changement echoue', async () => {
+      const session = await connecter(app, 'charge.a@test.example', 'MotDePasseParAgence2026');
+
+      await avec(app, session)
+        .post('/api/auth/mot-de-passe')
+        .send({ ancien: 'MauvaisMotDePasse2026', nouveau: 'PeuImporte2026' })
+        .expect(401);
+
+      expect(mail.dernierPour('charge.a@test.example')).toBeUndefined();
     });
   });
 });

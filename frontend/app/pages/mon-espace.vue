@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {
-  FILIERE_LIBELLES,
   STATUT_CANDIDAT_LIBELLES,
   TYPE_CLIENT_LIBELLES,
   type EspacePersonnel,
@@ -68,12 +67,6 @@ const { data: espace, error } = await useAsyncData('mon-espace', () =>
       </p>
 
       <dl class="fiche">
-        <dt>Filieres</dt>
-        <dd>
-          <span v-for="f in espace.candidat.filieres" :key="f" class="pastille">
-            {{ FILIERE_LIBELLES[f] }}
-          </span>
-        </dd>
         <dt>Secteur</dt>
         <dd>
           {{ espace.candidat.codePostal }} {{ espace.candidat.ville }} &middot;

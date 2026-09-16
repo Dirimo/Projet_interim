@@ -1,19 +1,24 @@
 import { z } from 'zod';
 import { candidatCreateSchema, type CandidatResume } from './candidat';
-import { clientCreateSchema, type ClientResume } from './client';
+import { type ClientResume } from './client';
 import { MOTIF_EMAIL } from './motifs';
 import { motDePasseSchema } from './utilisateur';
 
 /**
- * Inscription en ligne des deux profils.
+ * Inscription en ligne.
  *
- * L'agence garde la main sur ce qui engage : une inscription ouvre un compte,
- * elle ne rend personne operationnel. L'entreprise cree son fiche client
- * inactive, l'interimaire arrive en verification. C'est l'agence qui valide,
- * apres avoir vu les diplomes d'un cote et verifie l'entreprise de l'autre.
+ * Un seul parcours public : celui de l'intervenant. Les ESMS, eux, sont crees
+ * par l'agence depuis le back-office — leur statut reglementaire (declaration
+ * SAP, agrement, autorisation departementale) engage juridiquement, et se
+ * verifie sur piece. Laisser une structure se declarer autorisee sans que
+ * personne n'ouvre l'arrete reviendrait a ne rien verifier du tout.
+ *
+ * Ce qui reste vrai du parcours conserve : une inscription ouvre un compte,
+ * elle ne rend personne operationnel. L'interimaire arrive en verification,
+ * et c'est l'agence qui valide apres avoir vu les diplomes.
  */
 
-/** Identifiants du compte, communs aux deux parcours. */
+/** Identifiants du compte. */
 export const compteInscriptionSchema = z.object({
   email: z.string().trim().toLowerCase().regex(MOTIF_EMAIL, 'Adresse e-mail invalide'),
   motDePasse: motDePasseSchema,
@@ -22,38 +27,16 @@ export const compteInscriptionSchema = z.object({
 export type CompteInscription = z.infer<typeof compteInscriptionSchema>;
 
 /**
- * La convention collective et l'IDCC sont volontairement absents du formulaire :
- * ils fixent le salaire de reference de l'interimaire (egalite de traitement
- * avec les salaries de l'entreprise utilisatrice). Une entreprise qui les
- * declarerait elle-meme fixerait donc sa propre masse salariale. C'est l'agence
- * qui les renseigne a la validation.
- *
- * L'e-mail de contact n'est pas demande non plus : c'est celui du compte.
- */
-export const inscriptionEntrepriseSchema = z.object({
-  entreprise: clientCreateSchema.omit({
-    conventionCollective: true,
-    idcc: true,
-    contactEmail: true,
-  }),
-  compte: compteInscriptionSchema,
-});
-
-export type InscriptionEntreprise = z.infer<typeof inscriptionEntrepriseSchema>;
-
-/**
  * L'e-mail vient du compte : une seule adresse a saisir, et surtout une seule
  * verite. Deux champs distincts finiraient par diverger, et on ne saurait plus
  * laquelle sert a joindre la personne.
  *
- * Les coordonnees geographiques sont calculees par geocodage, pas saisies.
+ * Les coordonnees geographiques ne sont plus a retirer ici : `candidatCreate`
+ * ne les porte plus du tout. Elles sont calculees par geocodage a partir de
+ * l'adresse, juste apres la creation de la fiche.
  */
 export const inscriptionInterimaireSchema = z.object({
-  interimaire: candidatCreateSchema.omit({
-    email: true,
-    latitude: true,
-    longitude: true,
-  }),
+  interimaire: candidatCreateSchema.omit({ email: true }),
   compte: compteInscriptionSchema,
 });
 

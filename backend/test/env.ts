@@ -57,3 +57,23 @@ process.env.DATABASE_URL = URL_TEST;
  * echoueraient alors sur une machine et passeraient sur une autre.
  */
 process.env.MAIL_HOST = '';
+
+/**
+ * Aucun appel a la Base Adresse Nationale depuis les tests.
+ *
+ * Chaque fiche enregistree declenche un geocodage : sans cette ligne, une suite
+ * d'integration martelerait un service public gratuit a chaque execution, et
+ * ses assertions dependraient de sa disponibilite. Les regles de lecture d'une
+ * reponse BAN se verifient a part, sur un objet ecrit a la main
+ * (`geocodage.spec.ts`).
+ */
+process.env.GEOCODAGE_ACTIF = 'false';
+
+/**
+ * Stockage des pieces justificatives isole, et jetable.
+ *
+ * Sans cette ligne les tests ecriraient dans le dossier de developpement et y
+ * laisseraient des fichiers orphelins a chaque execution — des fichiers qui,
+ * dans la vraie vie, contiennent une piece d'identite.
+ */
+process.env.STOCKAGE_DOCUMENTS = join(RACINE, 'donnees', 'documents-test');

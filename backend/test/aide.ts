@@ -46,17 +46,21 @@ export function avec(app: INestApplication, session: Session) {
  * complet, et que sa forme correspond a ce que la page attend. Un test qui
  * fabriquerait son propre jeton laisserait passer un courriel vide.
  */
-export function jetonDuCourriel(app: INestApplication, destinataire: string): string {
+export function jetonDuCourriel(
+  app: INestApplication,
+  destinataire: string,
+  page: 'verification' | 'reinitialisation' = 'verification',
+): string {
   const courriel = app.get(MailService).dernierPour(destinataire);
 
   if (!courriel) {
     throw new Error(`Aucun courriel emis a ${destinataire}`);
   }
 
-  const lien = /https?:\/\/\S*\/verification\?jeton=([\w.~-]+)/.exec(courriel.texte);
+  const lien = new RegExp(`https?://\\S*/${page}\\?jeton=([\\w.~-]+)`).exec(courriel.texte);
 
   if (!lien) {
-    throw new Error(`Le courriel a ${destinataire} ne porte aucun lien de verification`);
+    throw new Error(`Le courriel a ${destinataire} ne porte aucun lien vers /${page}`);
   }
 
   return decodeURIComponent(lien[1]!);

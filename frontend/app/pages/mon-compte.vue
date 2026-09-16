@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { MOT_DE_PASSE_LONGUEUR_MIN, ROLE_LIBELLES } from '@releve/shared';
 
+useHead({ title: 'Mon compte — Relève' });
+
 const { requete } = useApi();
-const { utilisateur } = useSession();
+const { utilisateur, deconnexion } = useSession();
+
+const { contrasteFort, animationsReduites, basculerContraste, basculerAnimations } =
+  usePreferencesAffichage();
 
 const ancien = ref('');
 const nouveau = ref('');
@@ -17,7 +22,7 @@ async function changer(): Promise<void> {
   succes.value = '';
 
   if (nouveau.value !== confirmation.value) {
-    message.value = 'Les deux saisies du nouveau mot de passe different.';
+    message.value = 'Les deux saisies du nouveau mot de passe diffèrent.';
     return;
   }
 
@@ -32,7 +37,7 @@ async function changer(): Promise<void> {
     ancien.value = '';
     nouveau.value = '';
     confirmation.value = '';
-    succes.value = 'Mot de passe change.';
+    succes.value = 'Mot de passe changé.';
   } catch (cause) {
     const corps = (
       cause as { data?: { message?: string; erreurs?: { champ: string; message: string }[] } }
@@ -45,21 +50,85 @@ async function changer(): Promise<void> {
     enCours.value = false;
   }
 }
+
+async function sortir(): Promise<void> {
+  await deconnexion();
+  await navigateTo('/connexion');
+}
 </script>
 
 <template>
-  <section class="mon-compte">
+  <section class="compte">
     <h1>Mon compte</h1>
 
-    <p v-if="utilisateur" class="identite">
-      {{ utilisateur.email }} &middot; {{ ROLE_LIBELLES[utilisateur.role] }}
+    <div v-if="utilisateur" class="identite">
+      <span class="pastille">{{ initiales(utilisateur.email) }}</span>
+      <div>
+        <p class="adresse">{{ utilisateur.email }}</p>
+        <p class="role">{{ ROLE_LIBELLES[utilisateur.role] }}</p>
+      </div>
+    </div>
+
+    <!--
+      Les interrupteurs du canvas. Celui des notifications par e-mail n'est pas
+      repris : aucune preference de ce genre n'existe cote API, et un reglage
+      qui ne commande rien vaut moins qu'un reglage absent. Les deux qui restent
+      sont entierement rendus par le navigateur, donc reels.
+    -->
+    <h2>Affichage</h2>
+
+    <div class="reglages">
+      <div class="reglage">
+        <div class="copie">
+          <p class="libelle">Contraste renforcé</p>
+          <p class="aide">Assombrit le texte secondaire et marque davantage les filets.</p>
+        </div>
+
+        <button
+          type="button"
+          class="bascule"
+          :class="{ actif: contrasteFort }"
+          role="switch"
+          :aria-checked="contrasteFort"
+          aria-label="Contraste renforcé"
+          @click="basculerContraste()"
+        >
+          <span class="bouton" />
+        </button>
+      </div>
+
+      <div class="reglage">
+        <div class="copie">
+          <p class="libelle">Réduire les animations</p>
+          <p class="aide">Limite les mouvements et les transitions dans l'interface.</p>
+        </div>
+
+        <button
+          type="button"
+          class="bascule"
+          :class="{ actif: animationsReduites }"
+          role="switch"
+          :aria-checked="animationsReduites"
+          aria-label="Réduire les animations"
+          @click="basculerAnimations()"
+        >
+          <span class="bouton" />
+        </button>
+      </div>
+    </div>
+
+    <p class="portee">
+      Ces deux réglages sont enregistrés dans ce navigateur : ils suivent cet appareil, pas votre
+      compte.
     </p>
 
-    <form class="bloc" @submit.prevent="changer()">
-      <h2>Changer mon mot de passe</h2>
+    <h2>Sécurité</h2>
 
-      <p v-if="message" class="alerte">{{ message }}</p>
-      <p v-if="succes" class="succes">{{ succes }}</p>
+    <form class="carte" @submit.prevent="changer()">
+      <p class="titre-carte">Changer mon mot de passe</p>
+
+      <p v-if="message" class="alerte" role="alert">{{ message }}</p>
+      <p v-if="succes" class="succes" role="status">{{ succes }}</p>
 
       <label>
         <span>Mot de passe actuel</span>
@@ -73,7 +142,7 @@ async function changer(): Promise<void> {
       </label>
 
       <label>
-        <span>Nouveau mot de passe ({{ MOT_DE_PASSE_LONGUEUR_MIN }} caracteres minimum)</span>
+        <span>Nouveau mot de passe ({{ MOT_DE_PASSE_LONGUEUR_MIN }} caractères minimum)</span>
         <input
           id="nouveau"
           v-model="nouveau"
@@ -96,110 +165,278 @@ async function changer(): Promise<void> {
         />
       </label>
 
-      <button type="submit" :disabled="enCours">
-        {{ enCours ? 'Enregistrement...' : 'Changer le mot de passe' }}
-      </button>
+      <div>
+        <button type="submit" class="principal" :disabled="enCours">
+          {{ enCours ? 'Enregistrement...' : 'Changer le mot de passe' }}
+        </button>
+      </div>
 
       <p class="note">
-        Les sessions deja ouvertes ailleurs restent valables jusqu a expiration de leur jeton, soit
-        quinze minutes. En cas de compte compromis, demander en plus a un administrateur de
-        desactiver le compte.
+        Les sessions déjà ouvertes ailleurs restent valables jusqu'à expiration de leur jeton, soit
+        quinze minutes. En cas de compte compromis, demander en plus à un administrateur de
+        désactiver le compte.
       </p>
     </form>
+
+    <button type="button" class="sortir" @click="sortir()">Se déconnecter</button>
   </section>
 </template>
 
 <style scoped>
-.mon-compte {
-  max-width: 460px;
-  padding-block: 32px 0;
+.compte {
+  max-width: 820px;
 }
 
 h1 {
-  margin: 0 0 6px;
-  font-size: 1.6rem;
+  margin: 0 0 24px;
+  font-size: clamp(28px, 5vw, 34px);
   font-weight: 700;
-  letter-spacing: -0.01em;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
 }
 
 h2 {
-  margin: 0 0 14px;
-  font-size: 1rem;
+  margin: 30px 0 14px;
+  font-size: 12.5px;
   font-weight: 700;
-}
-
-.identite {
-  margin: 0 0 22px;
-  font-family: var(--mono);
-  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 
-.bloc {
-  display: grid;
-  gap: 14px;
-  padding: 18px;
+.identite {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 20px 22px;
   background: var(--surface);
   border: 1px solid var(--line);
+  border-radius: 16px;
+}
+
+.pastille {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--dom);
+  background: var(--surface-2);
+  border-radius: 12px;
+}
+
+.adresse {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.role {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ---------- Reglages ---------- */
+
+.reglages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reglage {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 20px 22px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+
+.copie {
+  flex: 1;
+  min-width: 0;
+}
+
+.libelle {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 600;
+}
+
+.aide {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.bascule {
+  display: flex;
+  flex: none;
+  justify-content: flex-start;
+  width: 46px;
+  height: 26px;
+  padding: 3px;
+  background: var(--line-forte);
+  border: 0;
+  border-radius: 20px;
+  cursor: pointer;
+}
+
+.bascule.actif {
+  justify-content: flex-end;
+  background: var(--dom);
+}
+
+.bascule:focus-visible {
+  outline: 2px solid var(--dom);
+  outline-offset: 3px;
+}
+
+.bouton {
+  display: block;
+  width: 20px;
+  height: 20px;
+  background: var(--surface);
+  border-radius: 50%;
+}
+
+.portee {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* ---------- Mot de passe ---------- */
+
+.carte {
+  display: grid;
+  gap: 16px;
+  padding: 26px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+}
+
+.titre-carte {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
 }
 
 label {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  gap: 7px;
+  font-size: 13.5px;
+  font-weight: 600;
   color: var(--muted);
 }
 
 input {
+  width: 100%;
+  padding: 14px 15px;
   font-family: var(--sans);
-  font-size: 0.92rem;
-  padding: 9px 10px;
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  background: var(--ground);
+  font-size: 15px;
+  font-weight: 400;
   color: var(--ink);
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 11px;
 }
 
-button {
+input:focus-visible {
+  outline: 2px solid var(--dom);
+  outline-offset: 2px;
+}
+
+.principal {
+  padding: 15px 28px;
   font-family: var(--sans);
-  font-size: 0.9rem;
-  font-weight: 700;
-  padding: 10px 18px;
-  border: 0;
-  border-radius: 3px;
-  background: var(--dom);
+  font-size: 15.5px;
+  font-weight: 600;
   color: var(--surface);
+  background: var(--dom);
+  border: 0;
+  border-radius: 12px;
   cursor: pointer;
-  justify-self: start;
 }
 
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.principal:hover:not(:disabled) {
+  background: var(--dom-fonce);
 }
 
-.note {
-  margin: 0;
-  font-size: 0.84rem;
-  color: var(--muted);
+.principal:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.principal:focus-visible,
+.sortir:focus-visible {
+  outline: 2px solid var(--dom);
+  outline-offset: 3px;
 }
 
 .alerte,
 .succes {
+  padding: 13px 15px;
   margin: 0;
-  font-size: 0.9rem;
-  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  border-radius: 12px;
+}
+
+.alerte {
+  color: var(--eta);
   background: var(--eta-soft);
-  border-left: 3px solid var(--eta);
-  color: var(--ink);
+  border: 1px solid var(--eta-line);
 }
 
 .succes {
-  background: var(--dom-soft);
-  border-left-color: var(--dom);
+  color: var(--dom-fonce);
+  background: var(--surface-2);
+  border: 1px solid var(--line-forte);
+}
+
+.note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* Le canvas met la deconnexion en rouge sur fond blanc, cernee : c'est la seule
+ * action de cet ecran qui fait perdre quelque chose. */
+.sortir {
+  padding: 14px 24px;
+  margin-top: 30px;
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--eta);
+  background: var(--surface);
+  border: 1px solid var(--line-forte);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.sortir:hover {
+  border-color: var(--eta);
+}
+
+@media (max-width: 560px) {
+  .carte,
+  .identite,
+  .reglage {
+    padding: 20px;
+  }
 }
 </style>

@@ -4,6 +4,13 @@ import {
   type MotifExclusion,
   type ScoreDetail,
 } from '@releve/shared';
+import {
+  bilanExperience,
+  libelleDuree,
+  PLAFOND_EXPERIENCE_MOIS,
+  type BilanExperience,
+  type ExperienceEvaluee,
+} from './experience';
 
 /**
  * Le calcul du score, isolé de la base.
@@ -25,13 +32,17 @@ export interface CreneauCandidat {
 
 export interface ProfilAEvaluer {
   statut: string;
-  filieres: string[];
   rayonKm: number;
   latitude: number | null;
   longitude: number | null;
-  /** Date d'obtention du diplôme exigé, null s'il n'est pas détenu ou pas vérifié. */
-  diplomeObtenuLe: Date | null;
   diplomeValide: boolean;
+  /**
+   * Postes occupés, déjà réduits à ceux que l'agence a vérifiés. Une expérience
+   * déclarée et non contrôlée s'affiche sur la fiche mais ne rapporte rien :
+   * c'est la même règle que pour le diplôme, et pour la même raison — sinon le
+   * score se déclare lui-même.
+   */
+  experiences: ExperienceEvaluee[];
   creneaux: CreneauCandidat[];
   /** Périodes d'absence déclarées, bornes incluses. */
   absences: { du: Date; au: Date }[];
@@ -40,7 +51,6 @@ export interface ProfilAEvaluer {
 }
 
 export interface BesoinAPourvoir {
-  filiere: string;
   dateDebut: Date;
   dateFin: Date;
   heureDebut: string;
@@ -90,6 +100,22 @@ export function distanceKm(
     Math.sin(dLat / 2) ** 2 + Math.cos(rad(latA)) * Math.cos(rad(latB)) * Math.sin(dLon / 2) ** 2;
 
   return Math.round(RAYON_TERRE_KM * 2 * Math.asin(Math.sqrt(a)) * 10) / 10;
+}
+
+/**
+ * Le rayon déclaré est-il respecté ?
+ *
+ * `null` quand la distance n'est pas mesurable — on ne peut alors ni affirmer
+ * ni infirmer, et c'est un troisième cas, pas un refus déguisé.
+ *
+ * Écrite ici, à côté du barème, et exportée : la porte d'éligibilité, la liste
+ * des missions du candidat et l'écran de candidature posent tous les trois la
+ * même question. Trois copies de `distance > rayon` finiraient par diverger, et
+ * l'utilisateur lirait « au-delà de votre rayon » sur un écran et pourrait
+ * postuler sur un autre.
+ */
+export function dansLeRayon(distance: number | null, rayonKm: number): boolean | null {
+  return distance === null ? null : distance <= rayonKm;
 }
 
 /** Chaque jour couvert par la mission, bornes incluses. */
@@ -214,13 +240,6 @@ export function motifsExclusion(profil: ProfilAEvaluer, besoin: BesoinAPourvoir)
     motifs.push({ cle: 'statut', libelle: "Profil non valide par l'agence" });
   }
 
-  if (!profil.filieres.includes(besoin.filiere)) {
-    motifs.push({
-      cle: 'filiere',
-      libelle: `Filiere ${besoin.filiere.toLowerCase()} absente du profil`,
-    });
-  }
-
   if (!profil.diplomeValide) {
     motifs.push({ cle: 'diplome', libelle: 'Diplome exige non detenu, non verifie ou expire' });
   }
@@ -242,13 +261,14 @@ export function motifsExclusion(profil: ProfilAEvaluer, besoin: BesoinAPourvoir)
   }
 
   const distance = distanceKm(profil.latitude, profil.longitude, besoin.latitude, besoin.longitude);
+  const accessible = dansLeRayon(distance, profil.rayonKm);
 
-  if (distance === null) {
+  if (accessible === null) {
     // Sans coordonnees, on ne peut ni mesurer ni affirmer : on ecarte en le
     // disant, plutot que d'attribuer une distance nulle qui ferait remonter la
     // fiche en tete du classement.
     motifs.push({ cle: 'sans-adresse', libelle: 'Coordonnees manquantes, distance non mesurable' });
-  } else if (distance > profil.rayonKm) {
+  } else if (!accessible) {
     motifs.push({
       cle: 'hors-rayon',
       libelle: `A ${distance} km, au-dela du rayon de ${profil.rayonKm} km`,
@@ -258,8 +278,29 @@ export function motifsExclusion(profil: ProfilAEvaluer, besoin: BesoinAPourvoir)
   return motifs;
 }
 
-function anneesDepuis(date: Date): number {
-  return Math.max(0, (Date.now() - date.getTime()) / (365.25 * 24 * 3600 * 1000));
+/**
+ * Ce que l'agence lit à la place d'un nombre.
+ *
+ * Elle distingue les deux natures d'expérience, parce que la question posée au
+ * candidat n'est pas la même : « il vous manque du temps » ou « il vous manque
+ * du temps *dans ce métier-là* » n'appellent pas la même suite.
+ */
+function explicationExperience(bilan: BilanExperience): string {
+  if (bilan.moisRetenus <= 0) {
+    return 'Aucune experience verifiee par l agence';
+  }
+
+  const retenue = libelleDuree(bilan.moisRetenus);
+
+  if (bilan.moisAutres > 0 && bilan.moisQualifiants > 0) {
+    return `${retenue} retenus, dont ${libelleDuree(bilan.moisQualifiants)} sur le diplome exige`;
+  }
+
+  if (bilan.moisQualifiants > 0) {
+    return `${retenue} verifies sur le diplome exige`;
+  }
+
+  return `${retenue} retenus, hors du metier exige (comptes pour moitie)`;
 }
 
 /**
@@ -272,22 +313,23 @@ function anneesDepuis(date: Date): number {
 export function calculerScore(profil: ProfilAEvaluer, besoin: BesoinAPourvoir): ScoreDetail {
   const composantes: ComposanteScore[] = [];
 
-  // --- Compétences : le diplôme est acquis (la porte l'a vérifié), c'est son
-  // ancienneté qui départage. Plafonnée à dix ans : au-delà, l'écart entre deux
-  // professionnels ne se lit plus dans la date d'obtention.
-  const maxCompetences = POIDS_COMPOSANTES.competences;
-  const socle = Math.round(maxCompetences * 0.6);
-  const annees = profil.diplomeObtenuLe ? anneesDepuis(profil.diplomeObtenuLe) : 0;
-  const experience = Math.round((maxCompetences - socle) * Math.min(annees / 10, 1));
+  // --- Expérience : des mois de terrain vérifiés, plus l'âge du diplôme.
+  //
+  // Le diplôme ne rapporte plus rien ici, et c'est délibéré. La porte
+  // d'éligibilité exige déjà qu'il soit détenu et vérifié : tout candidat
+  // classé le possède, donc lui attribuer des points revient à ajouter la même
+  // constante à tout le monde. Une constante ne départage personne — elle gonfle
+  // les scores et fait paraître serré un classement qui ne l'est pas.
+  const maxExperience = POIDS_COMPOSANTES.experience;
+  const bilan = bilanExperience(profil.experiences);
+  const part = Math.min(bilan.moisRetenus / PLAFOND_EXPERIENCE_MOIS, 1);
 
   composantes.push({
-    cle: 'competences',
-    libelle: 'Competences',
-    points: socle + experience,
-    sur: maxCompetences,
-    explication: profil.diplomeObtenuLe
-      ? `Diplome exige detenu, obtenu il y a ${Math.floor(annees)} an${Math.floor(annees) > 1 ? 's' : ''}`
-      : 'Diplome exige detenu, date d obtention inconnue',
+    cle: 'experience',
+    libelle: 'Experience',
+    points: Math.round(maxExperience * part),
+    sur: maxExperience,
+    explication: explicationExperience(bilan),
   });
 
   // --- Zone : décroissance linéaire jusqu'au rayon déclaré.

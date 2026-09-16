@@ -61,8 +61,8 @@ export async function reinitialiser(): Promise<Jeu> {
   // sequences a zero, donc deux executions partent du meme etat.
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
-      jeton_rafraichissement, jeton_verification_email, utilisateur,
-      qualification_candidat, disponibilite,
+      jeton_rafraichissement, jeton_usage_unique, utilisateur,
+      qualification_candidat, experience_professionnelle, disponibilite,
       indisponibilite, proposition, contrat, releve_heures, evenement_mission,
       mission, facture, lieu_intervention, client, candidat, qualification, agence
     RESTART IDENTITY CASCADE
@@ -74,7 +74,7 @@ export async function reinitialiser(): Promise<Jeu> {
   const agenceB = await prisma.agence.create({ data: { nom: 'Agence B', ville: 'Rennes' } });
 
   const qualification = await prisma.qualification.create({
-    data: { code: 'DEAS', libelle: "Diplome d'Etat d'aide-soignant", filieres: ['ETABLISSEMENT'] },
+    data: { code: 'DEAS', libelle: "Diplome d'Etat d'aide-soignant" },
   });
 
   const candidatA = await prisma.candidat.create({
@@ -84,10 +84,15 @@ export async function reinitialiser(): Promise<Jeu> {
       prenom: 'Alice',
       email: 'alice.aubry@test.example',
       telephone: '0612340001',
-      filieres: ['DOMICILE', 'ETABLISSEMENT'],
       adresse: '1 rue A',
       codePostal: '44000',
       ville: 'Nantes',
+      // Coordonnees posees d'office : en production elles viennent du
+      // geocodage, qui est coupe en test. Sans elles, chaque fiche serait
+      // ecartee pour « coordonnees manquantes » — un motif exact, mais qui
+      // masquerait tous les autres et ne testerait plus rien.
+      latitude: 47.2184,
+      longitude: -1.5536,
       statut: 'ACTIF',
     },
   });
@@ -99,10 +104,11 @@ export async function reinitialiser(): Promise<Jeu> {
       prenom: 'Bruno',
       email: 'bruno.bernard@test.example',
       telephone: '0612340002',
-      filieres: ['DOMICILE'],
       adresse: '1 rue B',
       codePostal: '35000',
       ville: 'Rennes',
+      latitude: 48.1173,
+      longitude: -1.6778,
       statut: 'ACTIF',
     },
   });
@@ -121,6 +127,11 @@ export async function reinitialiser(): Promise<Jeu> {
             adresse: '2 rue A',
             codePostal: '44000',
             ville: 'Nantes',
+            // A quelques centaines de metres du domicile de la candidate A :
+            // la distance ne brouille aucune assertion, et les suites qui
+            // testent le rayon la deplacent elles-memes.
+            latitude: 47.2201,
+            longitude: -1.5521,
           },
         ],
       },

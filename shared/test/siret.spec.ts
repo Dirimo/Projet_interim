@@ -24,7 +24,13 @@ describe('siretValide', () => {
 });
 
 describe('clientCreateSchema', () => {
-  const base = { raisonSociale: 'SAAD Test' };
+  // Le statut reglementaire fait partie du socle depuis qu'il conditionne
+  // l'activation : une fiche sans lui n'est plus une fiche valide.
+  const base = {
+    raisonSociale: 'SAAD Test',
+    statutReglementaire: 'DECLARE_SAP',
+    numeroSap: 'SAP732829320',
+  };
 
   it('normalise un SIRET saisi avec des espaces', () => {
     const resultat = clientCreateSchema.safeParse({ ...base, siret: '732 829 320 00074' });
@@ -52,5 +58,96 @@ describe('clientCreateSchema', () => {
     expect(
       clientCreateSchema.safeParse({ ...base, siret: '73282932000074', type: 'EHPAD' }).success,
     ).toBe(false);
+  });
+
+  /**
+   * Le statut reglementaire et sa piece justificative.
+   *
+   * Ce que ces tests protegent n'est pas la presence d'un champ, mais sa
+   * coherence : declarer une autorisation departementale en ne fournissant
+   * qu'un numero SAP ferait passer une structure pour ce qu'elle n'est pas — et
+   * c'est ce statut qui determine si la duree minimale d'exercice prealable a
+   * l'interim s'applique a ses missions.
+   */
+  describe('statut reglementaire', () => {
+    const fiche = (surcharge: Record<string, unknown>) =>
+      clientCreateSchema.safeParse({
+        raisonSociale: 'SAAD Test',
+        siret: '73282932000074',
+        ...surcharge,
+      });
+
+    it('exige un statut', () => {
+      expect(fiche({}).success).toBe(false);
+    });
+
+    it('accepte une declaration accompagnee de son numero SAP', () => {
+      expect(fiche({ statutReglementaire: 'DECLARE_SAP', numeroSap: 'SAP732829320' }).success).toBe(
+        true,
+      );
+    });
+
+    it('normalise un numero SAP saisi avec des separateurs', () => {
+      const resultat = fiche({
+        statutReglementaire: 'PRESTATAIRE_CLASSIQUE',
+        numeroSap: 'sap 732-829-320',
+      });
+
+      expect(resultat.data?.numeroSap).toBe('SAP732829320');
+    });
+
+    it('refuse un numero SAP qui ne porte pas 9 chiffres', () => {
+      expect(fiche({ statutReglementaire: 'DECLARE_SAP', numeroSap: 'SAP7328' }).success).toBe(
+        false,
+      );
+    });
+
+    it('refuse une declaration sans numero', () => {
+      const resultat = fiche({ statutReglementaire: 'DECLARE_SAP' });
+
+      expect(resultat.success).toBe(false);
+      expect(resultat.error?.issues[0]?.path).toEqual(['numeroSap']);
+    });
+
+    it('exige un numero d agrement, et pas un numero SAP, pour un agree', () => {
+      expect(fiche({ statutReglementaire: 'AGREE_SAP', numeroSap: 'SAP732829320' }).success).toBe(
+        false,
+      );
+
+      expect(
+        fiche({ statutReglementaire: 'AGREE_SAP', numeroAgrement: 'SAP732829320' }).success,
+      ).toBe(true);
+    });
+
+    /** Une autorisation se prouve par deux pieces : le FINESS ne suffit pas seul. */
+    it('exige le FINESS et l arrete pour une structure autorisee', () => {
+      expect(
+        fiche({ statutReglementaire: 'AUTORISE_SAD_ESMS', numeroFiness: '440000123' }).success,
+      ).toBe(false);
+
+      expect(
+        fiche({
+          statutReglementaire: 'AUTORISE_SAD_ESMS',
+          numeroFiness: '440000123',
+          arreteReference: 'ARR-2025-114',
+        }).success,
+      ).toBe(true);
+    });
+
+    it('refuse un FINESS qui ne fait pas 9 chiffres', () => {
+      expect(
+        fiche({
+          statutReglementaire: 'AUTORISE_SAD_ESMS',
+          numeroFiness: '4400',
+          arreteReference: 'ARR-2025-114',
+        }).success,
+      ).toBe(false);
+    });
+
+    it('refuse un statut hors nomenclature', () => {
+      expect(fiche({ statutReglementaire: 'AUTRE', numeroSap: 'SAP732829320' }).success).toBe(
+        false,
+      );
+    });
   });
 });
