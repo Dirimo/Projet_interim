@@ -30,7 +30,7 @@ Le projet est un **POC de onze jours**. Quatre jalons sur cinq sont entamés.
 | J7–J9 — Tableau de bord, vitrine, conformité | Tableau de bord candidat, pages publiques, n8n, RGAA / RGESN / RGPD                                       | **Partiel** — voir ci-dessous |
 | J10–J11 — Tests, livrables, soutenance       | Couverture transmise, étude de marché, chiffrage réel, pitch                                              | À faire · 4 j·dev             |
 
-**348 tests au vert** : 316 sur l'API, 32 sur les règles partagées. Le front n'en a aucun.
+**371 tests au vert** : 339 sur l'API, 32 sur les règles partagées. Le front n'en a aucun.
 
 Du jalon J7–J9 sont livrés le **tableau de bord candidat**, les **huit pages vitrine** (accueil,
 fonctionnement, à propos, FAQ, contact, mentions légales, conditions d'utilisation, politique de
@@ -128,13 +128,36 @@ pour le troisième, espace candidat — tableau de bord, missions, suivi, profil
 
 La plateforme consomme les offres d'intérim publiées sur **France Travail** pour les métiers du
 secteur (codes ROME `J1501` aide-soignant, `K1302` assistance auprès d'adultes, `K1304` services
-domestiques), et en tire un **baromètre de tension** par métier et par département.
+domestiques). Elles servent à deux choses, et à rien d'autre :
+
+- un **baromètre de tension** par métier et par département, qui alimente le taux horaire suggéré à
+  l'établissement au moment où il fixe sa rémunération ;
+- des **suggestions au candidat connecté**, rapprochées de son métier et de son rayon de
+  déplacement.
+
+Elles ne sont **jamais republiées au tout-venant**. La page publique `/offres` ne sert que les
+missions de Relève : mélanger les deux ferait croire à un candidat qu'il postule ici alors que
+l'annonce appartient à une agence concurrente, et qu'il n'en recevra jamais de réponse de notre
+part. Partout où une offre France Travail est montrée — donc dans l'espace candidat — sa source est
+citée et un lien mène à l'annonce d'origine, seule façon d'y postuler.
+
+> **Licence.** La réutilisation est encadrée par la _licence de réutilisation de la base d'offres
+> d'emploi de France Travail_, à laquelle il faut adhérer sur
+> [francetravail.io](https://francetravail.io). Elle impose d'interroger l'API au moins toutes les
+> 24 heures, de faire disparaître les offres retirées chez la source, de ne pas dénaturer le contenu,
+> d'afficher la date de dernière actualisation, et **exclut les coordonnées du recruteur** — que le
+> code ne collecte donc pas. Le champ `contact` est volontairement absent du type `OffreBrute` : un
+> champ qu'on ne déclare pas est un champ qu'on ne peut pas recopier par distraction.
 
 ```bash
 # Collecte, nettoyage et enregistrement
 pnpm cli importer:offres --jours 30 --departement 44,85,49
 
-# Tout nettoyer et compter, sans rien écrire
+# Balayage complet : retire aussi les offres disparues de la source.
+# Réservé à un import non tronqué — le service refuse d'expirer en dessous du seuil.
+pnpm cli importer:offres --jours 60 --max 3000 --expirer
+
+# Tout préparer et compter, sans rien écrire
 pnpm cli importer:offres --jours 30 --sec
 
 # Rejouer l'instantané livré avec le dépôt, sans réseau ni identifiants
@@ -143,10 +166,13 @@ pnpm cli importer:offres --fichier donnees/offres-echantillon.json
 # Enregistrer un nouvel instantané brut
 pnpm cli exporter:offres --jours 30 --sortie donnees/instantane.json
 
+# Situer les offres à partir de leur commune (voir « Géocodage » ci-dessous)
+pnpm cli geocoder:offres
+
 # Afficher le baromètre
 pnpm cli barometre --jours 30 --departement 44
 
-# Situer les fiches restées sans coordonnées (voir « Géocodage » ci-dessous)
+# Situer les fiches candidats restées sans coordonnées
 pnpm cli geocoder
 ```
 
@@ -154,37 +180,81 @@ Les identifiants se créent sur [francetravail.io](https://francetravail.io) (ap
 à « Offres d'emploi v2 ») et se renseignent dans `backend/.env`. Sans eux, seul l'import par fichier
 fonctionne.
 
-### Ce que fait le nettoyage
+### Ce que fait la préparation
 
-La donnée brute n'est pas exploitable telle quelle. Sur un échantillon réel de 600 offres :
+La donnée brute n'est pas exploitable telle quelle. Sur un balayage réel du 16 septembre 2026
+(2 020 offres, 60 jours, trois codes ROME) :
 
-| Étape                              | Effet mesuré         |
-| ---------------------------------- | -------------------- |
-| Écartées faute de lieu exploitable | 5 offres             |
-| Républications fusionnées          | 97 offres, soit 16 % |
-| **Retenues**                       | **498**              |
-| dont salaire exploitable           | 264                  |
-| dont sans salaire annoncé          | 234                  |
+| Étape                                    | Effet mesuré   |
+| ---------------------------------------- | -------------- |
+| Reçues                                   | 2 020          |
+| Écartées (sans identifiant, titre, date) | 0              |
+| Républications repérées                  | 479, soit 24 % |
+| dont salaire exploitable                 | 518            |
+| dont sans salaire annoncé                | 1 502          |
+| dont lieu non situable                   | 10             |
 
 - **Salaires** : huit formes de libellé coexistent (`Horaire de 15.0 Euros`,
   `Mensuel de 1800.0 Euros à 2000.0 Euros sur 12.0 mois`, `Annuel de 24000.0 Euros`, suivies parfois
   d'un commentaire libre). Tout est ramené à un taux horaire ; sur une fourchette on prend le milieu.
-  Un libellé illisible donne `null`, jamais une valeur inventée.
-- **Dédoublonnage** : les agences republient la même offre sous un nouvel identifiant. L'empreinte
-  (métier + intitulé normalisé + employeur + commune) les fusionne, sinon la tension mesurée serait
-  gonflée de 16 %.
+  Un libellé illisible donne `null`, jamais une valeur inventée. Mesuré : **518 conversions réussies
+  sur 521 libellés présents**, les 3 échecs étant des saisies employeur aberrantes
+  (`Annuel de 12.0 Euros`) que les garde-fous rejettent à raison.
 - **Intitulés** : « Aide soignant (F/H) », « AIDE-SOIGNANT H/F - URGENT » sont ramenés à
-  l'appellation du référentiel ROME, seule chaîne stable sur laquelle regrouper.
+  l'appellation du référentiel ROME dans `intituleNormalise`, seule chaîne stable sur laquelle
+  regrouper. Le titre de l'employeur reste intact dans `intitule` — c'est lui qui s'affiche, et le
+  remplacer serait « dénaturer le contenu » au sens de la licence.
 - **Lieux** : le département est tiré du libellé (`85 - Chaize-Giraud`), avec repli sur le code
-  postal, et trois chiffres conservés pour l'outre-mer.
+  postal, et trois chiffres conservés pour l'outre-mer. Piège du format : `lieuTravail.commune`
+  contient le **code INSEE** (`74280`), pas le nom — le nom n'existe que dans le libellé, derrière
+  le numéro de département.
 
 Ces règles sont des fonctions pures, sans base ni réseau, couvertes par 21 tests unitaires.
 
+### Le dédoublonnage se fait au calcul, pas à l'import
+
+Les républications ne sont plus fusionnées à l'écriture. La licence demande de restituer les offres
+mises à disposition, et deux agences qui publient la même mission publient deux annonces réelles.
+
+Toutes les lignes sont donc conservées, et c'est la requête du baromètre qui n'en garde qu'une par
+`empreinte`, avec un `DISTINCT ON`. À empreinte égale, la plus ancienne gagne : c'est la vraie date
+de mise sur le marché, et prendre la républication ferait glisser la fenêtre de tension à chaque
+reprise de l'annonce.
+
+Ce déplacement corrige aussi un défaut de la version précédente. Le tri se faisait lot par lot,
+avant l'écriture ; deux républications arrivées dans deux imports différents portaient deux
+identifiants distincts, entraient toutes les deux en base, et la tension les comptait deux fois.
+L'index sur `empreinte` existait mais ne servait à rien.
+
+### Cycle de vie : une offre pourvue disparaît
+
+`statut` vaut `ACTIVE` ou `EXPIREE`. Un balayage complet marque `vueLe` sur chaque offre revue, puis
+passe en `EXPIREE` celles que la source ne publie plus — la licence l'impose, et afficher des
+missions déjà pourvues est de toute façon le pire défaut possible.
+
+**Le garde-fou est ce qui compte.** Un import tronqué — plafond `--max` trop bas, coupure réseau au
+milieu de la pagination — ne prouve pas que le reste du catalogue a disparu. Le service refuse donc
+d'expirer quand le balayage ramène moins de 70 % des offres actives en base, et l'écrit dans le
+journal plutôt que de le taire. Sans ce refus, une seule commande viderait le site.
+
+Les lignes expirées restent en base : le baromètre travaille sur une fenêtre glissante de 30 à
+90 jours et doit continuer à voir les offres passées.
+
 ### Limite à énoncer
 
-La médiane ne porte que sur les offres qui **annoncent** une rémunération, soit un peu plus de la
-moitié. Le baromètre expose `offresSansSalaire` pour que la page le dise, plutôt que d'afficher un
-chiffre qui aurait l'air complet.
+La médiane ne porte que sur les offres qui **annoncent** une rémunération — **26 %** sur le balayage
+national du 16 septembre (521 sur 2 025). Le baromètre expose `offresSansSalaire` pour que la page le
+dise, plutôt que d'afficher un chiffre qui aurait l'air complet.
+
+### Import automatique
+
+`IMPORT_OFFRES_AUTOMATIQUE="true"` déclenche deux balayages complets par jour, à 5 h et 13 h, suivis
+du géocodage des communes nouvelles. La licence impose 24 heures au maximum ; deux passages laissent
+de la marge si l'un échoue.
+
+À poser **sur le serveur qui sert le site, et sur lui seul**. Laissé à `false` sur les postes de
+développement : sinon chaque machine tape l'API pour son propre compte, et plusieurs imports
+concurrents vers la même base de recette se marchent dessus.
 
 ---
 
@@ -226,6 +296,30 @@ est posé à la publication, seul moment où quelqu'un peut encore corriger — 
 tentative de géocodage, parce qu'une BAN indisponible au moment de la saisie ne doit pas bloquer un
 besoin urgent des semaines plus tard. Le message nomme l'adresse fautive et dit vers qui se tourner :
 les lieux se corrigent depuis le back-office, pas depuis l'espace client.
+
+### Les offres France Travail se situent par leur commune
+
+France Travail ne géolocalise qu'**une annonce sur sept** : sur le balayage du 16 septembre, 295
+offres sur 2 020 portaient des coordonnées. Les 1 725 autres ont pourtant leur commune et leur code
+postal — il ne manquait qu'une conversion.
+
+Le géocodage se fait **par commune, jamais par offre**. Les 1 725 annonces non situées ne
+représentent que 1 040 couples code postal / commune distincts, stockés dans `commune_geocodee` : une
+commune située une fois sert toutes ses offres, aujourd'hui et aux imports suivants. Appeler la BAN
+offre par offre recalculerait sans cesse les mêmes points.
+
+Mesuré sur le rattrapage réel : **1 017 communes situées, zéro échec, en trois minutes**, faisant
+passer la couverture de **15 % à 98 %**. Pour un aide-soignant nantais au rayon de 20 km, les offres
+à portée passent de 5 à 19.
+
+`origineCoordonnees` distingue `SOURCE` de `COMMUNE`, et l'affichage écrit « ~5,5 km » quand le point
+n'est que le centre d'une commune. Sur Nantes l'écart peut atteindre 3 à 4 km — négligeable pour
+filtrer un rayon de 20 km, trompeur si on le présente comme une mesure.
+
+**Piège désamorcé** : l'import écrit les coordonnées de la source. Si le `null` de France Travail
+écrasait le point déduit, le géocodage serait refait chaque jour pour être effacé chaque nuit, sans
+que rien ne le signale — la couverture resterait simplement basse. Les coordonnées sont donc écrites
+à part de l'`upsert`, et un test verrouille ce comportement.
 
 `GEOCODAGE_ACTIF=false` coupe le service sans rien effacer (suites d'intégration, poste hors réseau).
 
@@ -350,11 +444,15 @@ existe, avec une ligne par pièce attendue, remplie ou non. Le dépôt reste hor
 d'inscription, qui crée un compte et rien de plus ; les pièces se déposent depuis « Mon profil »,
 une fois l'adresse confirmée.
 
-Restent non transposés l'interrupteur « Notifications par e-mail » des paramètres — le modèle
-`Utilisateur` ne porte aucune préférence de ce genre, et en poser un qui ne commanderait rien serait
-mentir — et la **liste publique de missions**, `GET /missions` exigeant toujours une session. Les
-textes de la vitrine décrivent le parcours réel plutôt que celui du canvas. Voir « Limites
-connues ».
+La **liste publique de missions** du canvas existe désormais, sous `/offres` : elle sert les
+missions ouvertes de l'agence, sans session, avec trois menus déroulants — département, ville,
+métier — construits sur les missions réellement ouvertes plutôt que sur une liste figée des cent une
+divisions françaises. Elle ne nomme pas l'établissement client : publier sur le web ouvert quels
+services d'aide à domicile passent par une agence d'intérim est commercialement sensible pour eux,
+et ils ne l'ont pas autorisé en déposant un besoin.
+
+`GET /missions` reste réservé à une session : c'est la vue du candidat sur son agence, avec son
+classement et ses candidatures, et elle n'a pas le même contenu.
 
 **Le thème sombre n'existe pas dans le canvas.** Les teintes sombres de `main.css` sont une
 transposition des mêmes hues, faite pour que les écrans restent lisibles. À faire valider — ou à
@@ -407,17 +505,22 @@ backend/                          API NestJS
       echeances.ts                les deux dates du cycle, calculées en un seul endroit
     mon-profil/                   ce que l'intérimaire modifie sur sa propre fiche
     propositions/                 candidatures, décision du client, mission confirmée
-    donnees-publiques/            France Travail : collecte, nettoyage, baromètre
+    donnees-publiques/            France Travail : collecte, baromètre, vitrine publique
       france-travail.client.ts    OAuth2 et pagination de l'API Offres d'emploi
-      normalisation.ts            salaires et dédoublonnage (pur, testé sans base)
-      offres.service.ts           import, médianes, taux suggéré
+      normalisation.ts            salaires, empreinte, lieux (pur, testé sans base)
+      offres.service.ts           import, expiration, médianes, taux suggéré
+      geocodage-offres.service.ts communes situées une fois, réutilisées ensuite
+      import-planifie.service.ts  deux balayages par jour, sous IMPORT_OFFRES_AUTOMATIQUE
+      vitrine.service.ts          missions publiques, et suggestions du marché au candidat
       cache.service.ts            Redis, namespacé par base, dégradation propre
+      offres.controller.ts        GET /api/offres, /offres/options, /offres/suggestions
       tension.controller.ts       GET /api/tension et /api/tension/suggestion
     geocodage/                    Base Adresse Nationale : adresse -> point
       ban.client.ts               appel BAN et règles de rejet (pur, testé sans réseau)
       geocodage.service.ts        écriture lat/lon/geom, rattrapage en lot
     cli/main.ts                   importer:offres, exporter:offres, barometre, geocoder,
-                                  purger:documents, conservation:relancer, conservation:purger
+                                  geocoder:offres, notifier:missions, purger:documents,
+                                  conservation:relancer, conservation:purger
     qualifications/               référentiel partagé — deux diplômes : DEAS et AVS
     utilisateurs/                 gestion des comptes
     common/
@@ -457,6 +560,7 @@ frontend/                         Front Nuxt
       AppLogo.vue                 marque du canvas, couleurs liées aux tokens
       AppIcon.vue                 inline les tracés pour qu'ils suivent la couleur
       AppAttenteVerification.vue  « consultez votre boîte mail » après inscription
+      AppOffresMarche.vue         encart candidat : offres France Travail, source citée
     data/vitrine.ts               tout le contenu éditorial des pages publiques, en un seul endroit
     data/legal.ts                 les faits juridiques, à compléter en un seul fichier
     utils/mise-en-forme.ts        dates, durées et montants : une seule définition
@@ -468,15 +572,17 @@ frontend/                         Front Nuxt
       useCompletude.ts            avancement du dossier, partagé par la barre latérale et le profil
       usePreferencesAffichage.ts  contraste renforcé, animations réduites
     middleware/
-      auth.global.ts              tout est fermé sauf liste blanche ; vitrine ouverte à tous
-    pages/                        31 routes
+      auth.global.ts              tout est fermé sauf liste blanche ; vitrine ouverte à tous,
+                                  y compris la section /offres déclarée en préfixe
+    pages/                        33 routes
       accueil.vue                 vitrine : promesse, trois étapes, dossier candidat
       fonctionnement.vue          le parcours en six étapes
       a-propos.vue                positionnement, et « déclaré n'est pas vérifié »
       faq.vue                     six questions, accordéon natif
-      contact.vue                 coordonnées et formulaire, qui compose un courriel
+      offres/index.vue            nos missions ouvertes, sans session, trois menus déroulants
+      contact.vue                 coordonnées et formulaire, relayé par l'API
       mentions-legales.vue        rubriques légales, champs « À compléter », en noindex
-      conditions-utilisation.vue  brouillon de CGU, en noindex
+      conditions-utilisation.vue  conditions générales, en noindex
       politique-confidentialite.vue  traitements réels, durée de conservation, ce qui reste à préciser
       conservation.vue            cible du lien de relance : garder les pièces un an de plus, ou les effacer
       connexion.vue
@@ -880,6 +986,33 @@ L'adresse saisie ne devient **jamais l'expéditeur** : elle part en `Reply-To`. 
 rejeter le message par n'importe quel relais qui vérifie SPF, et ouvrirait le site à l'envoi de
 courrier au nom de n'importe qui.
 
+### Offres publiques et suggestions du marché
+
+| Méthode | Route                 | Accès      |
+| ------- | --------------------- | ---------- |
+| `GET`   | `/offres`             | **ouvert** |
+| `GET`   | `/offres/options`     | **ouvert** |
+| `GET`   | `/offres/suggestions` | `CANDIDAT` |
+
+Les deux routes ouvertes servent **les missions de Relève**, jamais les offres France Travail :
+`/offres` les liste avec pagination et filtres (`departement`, `ville`, `metier`), `/offres/options`
+alimente les menus déroulants à partir des missions réellement ouvertes. Le nom de l'établissement
+client n'est pas projeté.
+
+`/offres/suggestions` est la seule route qui rende des offres France Travail, et elle exige une
+session candidat. Le rapprochement se fait sur le **code ROME de la qualification** du candidat
+(DEAS → `J1501`, AVS → `K1304`) croisé avec son **rayon de déplacement**, filtré en base par une
+boîte englobante puis tranché à la distance à vol d'oiseau. Chaque suggestion porte sa source et son
+`urlOrigine`.
+
+Aucun score n'est affiché, et c'est délibéré : le barème de Relève pèse d'abord le chevauchement
+entre les créneaux déclarés et les horaires de la mission, or une offre France Travail n'annonce ses
+horaires qu'en texte libre (`35H/semaine, travail en journée`). Un score calculé sur des champs
+absents serait un chiffre inventé, affiché avec l'autorité d'une mesure.
+
+Quand la liste est vide, `motif` dit pourquoi — `AUCUN_METIER`, `ADRESSE_ABSENTE`, `AUCUNE_OFFRE` —
+pour que l'encart indique au candidat ce qu'il peut y changer plutôt que de rester muet.
+
 ### Tension du marché
 
 | Méthode | Route                 | Accès       |
@@ -901,7 +1034,7 @@ courrier au nom de n'importe qui.
 | `pnpm dev`                               | Contracts compilés, puis API et front en parallèle  |
 | `pnpm dev:backend` / `pnpm dev:frontend` | Un seul des deux                                    |
 | `pnpm build`                             | Contracts, puis API, puis front                     |
-| `pnpm test`                              | Règles partagées (32) puis intégration API (316)    |
+| `pnpm test`                              | Règles partagées (32) puis intégration API (339)    |
 | `pnpm test:shared`                       | Règles partagées seules, sans base                  |
 | `pnpm test:backend`                      | Intégration API seule                               |
 | `pnpm typecheck`                         | TypeScript sur les trois paquets, tests compris     |
@@ -925,7 +1058,8 @@ d'annoncer), et l'annonce des missions. `--sec` montre ce qui se passerait sans 
 | `pnpm cli conservation:purger`   | Efface les pièces restées sans réponse 30 jours après la relance            |
 | `pnpm cli notifier:missions`     | Annonce à chaque candidat actif les missions publiées qui lui correspondent |
 | `pnpm cli purger:documents`      | Effacement ciblé par type et par âge, hors du cycle de conservation         |
-| `pnpm cli geocoder`              | Situe les fiches restées sans coordonnées                                   |
+| `pnpm cli geocoder`              | Situe les fiches candidats restées sans coordonnées                         |
+| `pnpm cli geocoder:offres`       | Situe les offres collectées à partir de leur commune, via la BAN            |
 | `pnpm cli importer:offres`       | Collecte des offres France Travail (voir « Données publiques »)             |
 
 ---
@@ -1022,10 +1156,9 @@ l'historique.
 Trois valeurs échappent à la fiction et décrivent le code : la durée de conservation des pièces, la
 liste des sous-traitants, et l'absence de transfert hors Union européenne.
 
-**Les missions ne sont pas visibles sans compte.** `GET /missions` exige une session. Un visiteur ne
-peut donc pas parcourir les offres, alors que c'est le premier levier d'acquisition d'une agence.
-L'encart de l'accueil affiche pour l'instant des exemples explicitement étiquetés comme fictifs. Une
-route anonyme aux champs réduits — sans adresse exacte ni coordonnées de contact — suffirait.
+**L'accueil affiche encore des missions d'exemple.** La vitrine publique `/offres` sert de vraies
+missions depuis `GET /offres`, mais l'encart de la page d'accueil n'y est pas branché : il montre
+toujours des exemples explicitement étiquetés comme fictifs. Le raccordement tient en un appel.
 
 **Le contenu éditorial de la vitrine est incomplet.** Les chiffres de l'en-tête d'accueil et le
 téléphone de la page contact attendent les valeurs réelles, dans `frontend/app/data/vitrine.ts`. Le

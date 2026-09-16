@@ -4,8 +4,9 @@ import { join } from 'node:path';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { avec, connecter, type Session } from './aide';
-import { creerApp, prisma, reinitialiser } from './fixtures';
+import { creerApp, prisma, reinitialiser, type Jeu } from './fixtures';
 import { FranceTravailClient } from '../src/donnees-publiques/france-travail.client';
+import { GeocodageOffresService } from '../src/donnees-publiques/geocodage-offres.service';
 import { OffresService } from '../src/donnees-publiques/offres.service';
 import type { OffreBrute } from '../src/donnees-publiques/normalisation';
 
@@ -469,142 +470,376 @@ describe('donnees publiques', () => {
   });
 
   /**
-   * Les offres republiees, vues du visiteur.
+   * Geocodage des offres par leur commune.
    *
-   * Ce bloc verifie surtout des obligations de licence : la source et le lien
-   * d'origine accompagnent chaque annonce, le contenu n'est pas reecrit, et une
-   * offre retiree chez France Travail n'est plus servie.
+   * France Travail ne geolocalise qu'une annonce sur sept — 295 sur 2 020 lors
+   * d'un import reel. Sans ce rattrapage, le rapprochement candidat ignorerait
+   * six offres sur sept.
+   *
+   * La BAN est coupee en test (`GEOCODAGE_ACTIF=false`) : ces cas verifient le
+   * report des communes deja situees sur les offres, et surtout qu'un import
+   * ne detruit pas ce travail.
    */
-  describe('offres publiques republiees', () => {
-    beforeAll(async () => {
-      await prisma.offreCollectee.deleteMany();
+  describe('geocodage par la commune', () => {
+    let geocodage: GeocodageOffresService;
 
+    beforeAll(async () => {
+      geocodage = app.get(GeocodageOffresService);
+      await prisma.offreCollectee.deleteMany();
+      await prisma.communeGeocodee.deleteMany();
+    });
+
+    it('reporte les coordonnees de la commune sur les offres qui en manquent', async () => {
       await offres.importerDepuisFichier(
         JSON.stringify({
           resultats: [
             offre({
-              id: 'PUB1',
-              intitule: 'AIDE-SOIGNANT(E) - Interim (H/F)',
-              description: 'Poste en EHPAD, equipe de dix personnes.',
-              entreprise: { nom: 'MEDICALIS INTERIM' },
-              salaire: { libelle: 'Horaire de 15.0 Euros' },
+              id: 'G1',
               lieuTravail: { libelle: '44 - Nantes', commune: '44109', codePostal: '44000' },
-              origineOffre: {
-                urlOrigine: 'https://candidat.francetravail.fr/offres/recherche/detail/PUB1',
+            }),
+          ],
+        }),
+      );
+
+      const avant = await prisma.offreCollectee.findUniqueOrThrow({ where: { id: 'G1' } });
+      expect(avant.latitude).toBeNull();
+      expect(avant.origineCoordonnees).toBeNull();
+
+      await prisma.communeGeocodee.create({
+        data: { codePostal: '44000', nom: 'Nantes', latitude: 47.2184, longitude: -1.5536 },
+      });
+
+      const rapport = await geocodage.rattraper();
+
+      expect(rapport.offresSituees).toBe(1);
+
+      const apres = await prisma.offreCollectee.findUniqueOrThrow({ where: { id: 'G1' } });
+
+      expect(apres.latitude).toBeCloseTo(47.2184);
+      // L'origine dit que le point vaut la commune, pas l'adresse : c'est elle
+      // qui fera ecrire « environ 12 km » plutot que « 12 km ».
+      expect(apres.origineCoordonnees).toBe('COMMUNE');
+    });
+
+    /**
+     * Le piege le plus couteux du lot. L'import ecrit les coordonnees de la
+     * source ; si le `null` de France Travail ecrasait le point deduit, le
+     * geocodage serait refait chaque jour pour etre efface chaque nuit, et
+     * personne ne s'en apercevrait — la couverture resterait simplement basse.
+     */
+    it('ne laisse pas un import ecraser les coordonnees deduites', async () => {
+      await offres.importerDepuisFichier(
+        JSON.stringify({
+          resultats: [
+            offre({
+              id: 'G1',
+              lieuTravail: { libelle: '44 - Nantes', commune: '44109', codePostal: '44000' },
+            }),
+          ],
+        }),
+      );
+
+      const apresReimport = await prisma.offreCollectee.findUniqueOrThrow({ where: { id: 'G1' } });
+
+      expect(apresReimport.latitude).toBeCloseTo(47.2184);
+      expect(apresReimport.origineCoordonnees).toBe('COMMUNE');
+    });
+
+    /** Les coordonnees de la source, elles, priment toujours sur la commune. */
+    it('garde les coordonnees de la source quand elle en fournit', async () => {
+      await offres.importerDepuisFichier(
+        JSON.stringify({
+          resultats: [
+            offre({
+              id: 'G2',
+              lieuTravail: {
+                libelle: '44 - Nantes',
+                commune: '44109',
+                codePostal: '44000',
+                latitude: 47.25,
+                longitude: -1.6,
               },
             }),
+          ],
+        }),
+      );
+
+      const enregistree = await prisma.offreCollectee.findUniqueOrThrow({ where: { id: 'G2' } });
+
+      expect(enregistree.latitude).toBeCloseTo(47.25);
+      expect(enregistree.origineCoordonnees).toBe('SOURCE');
+    });
+
+    it('rend compte de la couverture geographique', async () => {
+      const couverture = await geocodage.couverture();
+
+      expect(couverture.total).toBe(2);
+      expect(couverture.situees).toBe(2);
+      expect(couverture.part).toBe(100);
+    });
+  });
+
+  /**
+   * La vitrine publique, et surtout ce qu'elle ne montre pas.
+   *
+   * Depuis que les offres France Travail ne sont plus republiees, `/offres` ne
+   * sert que les missions de Releve. C'est la frontiere la plus importante du
+   * produit : la franchir laisserait un candidat croire qu'il postule chez nous
+   * pour une annonce qui appartient a un concurrent.
+   */
+  describe('vitrine publique', () => {
+    let jeu: Jeu;
+
+    beforeAll(async () => {
+      jeu = await reinitialiser();
+      await prisma.offreCollectee.deleteMany();
+
+      // Une offre France Travail bien vivante, qui ne doit jamais sortir ici.
+      await offres.importerDepuisFichier(
+        JSON.stringify({
+          resultats: [offre({ id: 'FT1', entreprise: { nom: 'CONCURRENT INTERIM' } })],
+        }),
+      );
+
+      await prisma.mission.create({
+        data: {
+          reference: 'M-VITRINE-1',
+          agenceId: jeu.agenceA,
+          clientId: jeu.clientA,
+          lieuId: jeu.lieuA,
+          qualificationRequiseId: jeu.qualification,
+          statut: 'PUBLIEE',
+          dateDebut: new Date('2026-10-01'),
+          dateFin: new Date('2026-10-01'),
+          heureDebut: '08:00',
+          heureFin: '12:00',
+          motifRecours: 'ACCROISSEMENT_TEMPORAIRE',
+          tauxHoraire: 14.5,
+        },
+      });
+
+      // Brouillon : elle ne cherche encore personne, donc pas de vitrine.
+      await prisma.mission.create({
+        data: {
+          reference: 'M-VITRINE-2',
+          agenceId: jeu.agenceA,
+          clientId: jeu.clientA,
+          lieuId: jeu.lieuA,
+          qualificationRequiseId: jeu.qualification,
+          statut: 'BROUILLON',
+          dateDebut: new Date('2026-10-02'),
+          dateFin: new Date('2026-10-02'),
+          heureDebut: '08:00',
+          heureFin: '12:00',
+          motifRecours: 'ACCROISSEMENT_TEMPORAIRE',
+        },
+      });
+    });
+
+    it('sert les missions Releve sans session', async () => {
+      const reponse = await request(app.getHttpServer()).get('/api/offres').expect(200);
+
+      expect(reponse.body.total).toBe(1);
+      expect(reponse.body.donnees[0].reference).toBe('M-VITRINE-1');
+      expect(reponse.body.donnees[0].tauxHoraire).toBe(14.5);
+    });
+
+    /** Le coeur de la separation : aucune offre du marche ne fuit sur la vitrine. */
+    it('ne laisse sortir aucune offre France Travail', async () => {
+      const reponse = await request(app.getHttpServer()).get('/api/offres').expect(200);
+      const corps = JSON.stringify(reponse.body);
+
+      expect(corps).not.toContain('CONCURRENT INTERIM');
+      expect(corps).not.toContain('FRANCE_TRAVAIL');
+      expect(corps).not.toContain('francetravail.fr');
+    });
+
+    /**
+     * Publier sur le web ouvert quels services d'aide a domicile passent par une
+     * agence d'interim est commercialement sensible pour eux, et ils ne l'ont
+     * pas autorise en deposant un besoin.
+     */
+    it('ne nomme pas l etablissement client', async () => {
+      const reponse = await request(app.getHttpServer()).get('/api/offres').expect(200);
+
+      expect(JSON.stringify(reponse.body)).not.toContain('SAAD A');
+      expect(reponse.body.donnees[0].ville).toBe('Nantes');
+    });
+
+    it('ignore les missions qui ne cherchent personne', async () => {
+      const reponse = await request(app.getHttpServer()).get('/api/offres').expect(200);
+
+      expect(
+        reponse.body.donnees.map((ligne: { reference: string }) => ligne.reference),
+      ).not.toContain('M-VITRINE-2');
+    });
+
+    it('construit les menus deroulants sur les missions ouvertes', async () => {
+      const reponse = await request(app.getHttpServer()).get('/api/offres/options').expect(200);
+
+      expect(reponse.body.departements).toEqual([
+        { code: '44', libelle: '44 — Loire-Atlantique', missions: 1 },
+      ]);
+      expect(reponse.body.villes).toEqual([{ nom: 'Nantes', departement: '44', missions: 1 }]);
+      expect(reponse.body.metiers).toHaveLength(1);
+    });
+
+    it('filtre par departement et par ville', async () => {
+      const bon = await request(app.getHttpServer()).get('/api/offres?departement=44').expect(200);
+      const ailleurs = await request(app.getHttpServer())
+        .get('/api/offres?departement=85')
+        .expect(200);
+      const parVille = await request(app.getHttpServer())
+        .get('/api/offres?ville=Nantes')
+        .expect(200);
+
+      expect(bon.body.total).toBe(1);
+      expect(ailleurs.body.total).toBe(0);
+      expect(parVille.body.total).toBe(1);
+    });
+  });
+
+  /**
+   * Les offres du marche, reservees au candidat connecte.
+   *
+   * Elles ne sont plus publiques : elles lui suggerent des pistes, source citee
+   * et lien vers l'annonce d'origine.
+   */
+  describe('suggestions du marche', () => {
+    let candidat: Session;
+
+    beforeAll(async () => {
+      const jeu = await reinitialiser();
+      candidat = await connecter(app, 'candidat.a@test.example');
+
+      await prisma.candidat.update({ where: { id: jeu.candidatA }, data: { rayonKm: 30 } });
+      await prisma.qualificationCandidat.create({
+        data: { candidatId: jeu.candidatA, qualificationId: jeu.qualification },
+      });
+
+      await prisma.offreCollectee.deleteMany();
+      await offres.importerDepuisFichier(
+        JSON.stringify({
+          resultats: [
+            // Nantes, a quelques centaines de metres de la candidate.
             offre({
-              id: 'PUB2',
-              intitule: 'Auxiliaire de vie (H/F)',
-              entreprise: { nom: 'DOMIDOM' },
-              salaire: { libelle: 'Horaire de 12.5 Euros' },
-              lieuTravail: { libelle: '85 - La Roche-sur-Yon', commune: '85191' },
+              id: 'S-PROCHE',
+              entreprise: { nom: 'VOISINE INTERIM' },
+              lieuTravail: {
+                libelle: '44 - Nantes',
+                commune: '44109',
+                codePostal: '44000',
+                latitude: 47.2201,
+                longitude: -1.5521,
+              },
+              origineOffre: {
+                urlOrigine: 'https://candidat.francetravail.fr/offres/recherche/detail/S-PROCHE',
+              },
             }),
-            // Sans salaire annonce : doit finir en queue d'un tri par taux.
-            offre({ id: 'PUB3', entreprise: { nom: 'SANS TAUX' }, salaire: undefined }),
+            // Marseille : bien au-dela des 30 km declares.
+            offre({
+              id: 'S-LOIN',
+              entreprise: { nom: 'LOINTAINE INTERIM' },
+              lieuTravail: {
+                libelle: '13 - Marseille',
+                commune: '13055',
+                codePostal: '13001',
+                latitude: 43.2965,
+                longitude: 5.3698,
+              },
+            }),
           ],
         }),
       );
     });
 
-    it('se lit sans session : c est de la donnee publique', async () => {
-      const reponse = await request(app.getHttpServer()).get('/api/offres').expect(200);
-
-      expect(reponse.body.total).toBe(3);
-      expect(reponse.body.donnees).toHaveLength(3);
+    it('exige une session', async () => {
+      await request(app.getHttpServer()).get('/api/offres/suggestions').expect(401);
     });
 
-    it('republie le titre de l employeur et le lien vers la source', async () => {
-      const reponse = await request(app.getHttpServer()).get('/api/offres/PUB1').expect(200);
+    it('ne retient que les offres du metier et du rayon', async () => {
+      const reponse = await avec(app, candidat).get('/api/offres/suggestions').expect(200);
 
-      expect(reponse.body.intitule).toBe('AIDE-SOIGNANT(E) - Interim (H/F)');
-      expect(reponse.body.description).toContain('EHPAD');
-      expect(reponse.body.urlOrigine).toBe(
-        'https://candidat.francetravail.fr/offres/recherche/detail/PUB1',
-      );
-      expect(reponse.body.source).toBe('FRANCE_TRAVAIL');
-      // Nom lisible, pas le code INSEE.
-      expect(reponse.body.communeNom).toBe('Nantes');
-    });
-
-    /**
-     * `intituleNormalise` sert a regrouper dans le barometre. Le publier
-     * reviendrait a proposer l'annonce sous un titre que l'employeur n'a pas
-     * ecrit, ce que la licence appelle denaturer le contenu.
-     */
-    it('n expose jamais la forme normalisee ni de coordonnees', async () => {
-      const reponse = await request(app.getHttpServer()).get('/api/offres/PUB1').expect(200);
-
-      expect(reponse.body).not.toHaveProperty('intituleNormalise');
-      expect(reponse.body).not.toHaveProperty('contact');
-      expect(JSON.stringify(reponse.body)).not.toContain('Tel :');
-    });
-
-    it('filtre par departement', async () => {
-      const reponse = await request(app.getHttpServer())
-        .get('/api/offres?departement=85')
-        .expect(200);
-
-      expect(reponse.body.total).toBe(1);
-      expect(reponse.body.donnees[0].id).toBe('PUB2');
-    });
-
-    it('cherche sur l intitule et sur l employeur', async () => {
-      const parEmployeur = await request(app.getHttpServer())
-        .get('/api/offres?recherche=domidom')
-        .expect(200);
-
-      expect(parEmployeur.body.donnees.map((ligne: { id: string }) => ligne.id)).toEqual(['PUB2']);
-
-      const parIntitule = await request(app.getHttpServer())
-        .get('/api/offres?recherche=auxiliaire')
-        .expect(200);
-
-      expect(parIntitule.body.donnees.map((ligne: { id: string }) => ligne.id)).toEqual(['PUB2']);
-    });
-
-    /**
-     * Postgres classe les NULL en tete d'un tri descendant : sans le
-     * `nulls: 'last'` du service, la liste s'ouvrirait sur les offres qui
-     * n'annoncent aucun salaire.
-     */
-    it('relegue les offres sans salaire en fin de tri par taux', async () => {
-      const reponse = await request(app.getHttpServer())
-        .get('/api/offres?tri=TAUX_DECROISSANT')
-        .expect(200);
-
-      expect(reponse.body.donnees.map((ligne: { id: string }) => ligne.id)).toEqual([
-        'PUB1',
-        'PUB2',
-        'PUB3',
+      expect(reponse.body.motif).toBeNull();
+      expect(reponse.body.suggestions.map((ligne: { id: string }) => ligne.id)).toEqual([
+        'S-PROCHE',
       ]);
+      expect(reponse.body.suggestions[0].distanceKm).toBeLessThan(2);
     });
 
-    it('pagine', async () => {
-      const reponse = await request(app.getHttpServer())
-        .get('/api/offres?page=2&limite=2')
-        .expect(200);
-
-      expect(reponse.body.total).toBe(3);
-      expect(reponse.body.donnees).toHaveLength(1);
-      expect(reponse.body.page).toBe(2);
-    });
-
-    it('refuse un departement mal forme', async () => {
-      await request(app.getHttpServer()).get('/api/offres?departement=zz').expect(400);
-    });
-
-    it('ne sert plus une offre retiree chez la source', async () => {
-      await prisma.offreCollectee.update({
-        where: { id: 'PUB2' },
-        data: { statut: 'EXPIREE', expireeLe: new Date() },
+    /**
+     * Sur un import reel, quinze pour cent seulement des offres France Travail
+     * portent des coordonnees : la source ne geolocalise pas la majorite de ses
+     * annonces. S'en tenir a la distance ignorerait six offres sur sept, d'ou
+     * le repli sur le departement du candidat.
+     *
+     * Ces offres sortent sans distance, jamais avec une distance estimee : un
+     * centroide de commune affiche en kilometres passerait pour une mesure.
+     */
+    it('retient aussi les offres du departement, sans inventer de distance', async () => {
+      await prisma.offreCollectee.updateMany({
+        where: { id: 'S-PROCHE' },
+        data: { latitude: null, longitude: null },
       });
 
-      await request(app.getHttpServer()).get('/api/offres/PUB2').expect(404);
+      const reponse = await avec(app, candidat).get('/api/offres/suggestions').expect(200);
+      const suggestion = reponse.body.suggestions.find(
+        (ligne: { id: string }) => ligne.id === 'S-PROCHE',
+      );
 
-      const liste = await request(app.getHttpServer()).get('/api/offres').expect(200);
+      expect(suggestion).toBeDefined();
+      expect(suggestion.distanceKm).toBeNull();
+      expect(suggestion.departement).toBe('44');
 
-      expect(liste.body.total).toBe(2);
+      // Marseille reste dehors : ni mesurable, ni dans le bon departement.
+      expect(reponse.body.suggestions.map((ligne: { id: string }) => ligne.id)).not.toContain(
+        'S-LOIN',
+      );
+
+      await prisma.offreCollectee.updateMany({
+        where: { id: 'S-PROCHE' },
+        data: { latitude: 47.2201, longitude: -1.5521 },
+      });
+    });
+
+    /**
+     * Obligations de licence : la source et le lien d'origine accompagnent
+     * l'offre partout ou elle est montree, derriere une session comme ailleurs.
+     */
+    it('cite la source et le lien vers l annonce d origine', async () => {
+      const reponse = await avec(app, candidat).get('/api/offres/suggestions').expect(200);
+      const suggestion = reponse.body.suggestions[0];
+
+      expect(suggestion.source).toBe('FRANCE_TRAVAIL');
+      expect(suggestion.urlOrigine).toBe(
+        'https://candidat.francetravail.fr/offres/recherche/detail/S-PROCHE',
+      );
+    });
+
+    /**
+     * Un encart muet ferait croire a une panne. Le motif dit au candidat ce
+     * qu'il peut y changer lui-meme.
+     */
+    it('explique pourquoi la liste est vide', async () => {
+      const jeu = await reinitialiser();
+      const session = await connecter(app, 'candidat.a@test.example');
+
+      const sansMetier = await avec(app, session).get('/api/offres/suggestions').expect(200);
+
+      expect(sansMetier.body.motif).toBe('AUCUN_METIER');
+      expect(sansMetier.body.suggestions).toHaveLength(0);
+
+      await prisma.qualificationCandidat.create({
+        data: { candidatId: jeu.candidatA, qualificationId: jeu.qualification },
+      });
+      await prisma.candidat.update({
+        where: { id: jeu.candidatA },
+        data: { latitude: null, longitude: null },
+      });
+
+      const sansAdresse = await avec(app, session).get('/api/offres/suggestions').expect(200);
+
+      expect(sansAdresse.body.motif).toBe('ADRESSE_ABSENTE');
     });
   });
 });

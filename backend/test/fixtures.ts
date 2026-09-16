@@ -64,7 +64,8 @@ export async function reinitialiser(): Promise<Jeu> {
       jeton_rafraichissement, jeton_usage_unique, utilisateur,
       qualification_candidat, experience_professionnelle, disponibilite,
       indisponibilite, proposition, contrat, releve_heures, evenement_mission,
-      mission, facture, lieu_intervention, client, candidat, qualification, agence
+      mission, facture, lieu_intervention, client, candidat, qualification, agence,
+      commune_geocodee
     RESTART IDENTITY CASCADE
   `);
 
@@ -74,7 +75,12 @@ export async function reinitialiser(): Promise<Jeu> {
   const agenceB = await prisma.agence.create({ data: { nom: 'Agence B', ville: 'Rennes' } });
 
   const qualification = await prisma.qualification.create({
-    data: { code: 'DEAS', libelle: "Diplome d'Etat d'aide-soignant" },
+    // `romeCode` est le pont entre une qualification Releve et les offres
+    // collectees sur France Travail : c'est lui qui porte le taux median du
+    // marche et les suggestions faites au candidat. Le seed de production le
+    // pose ; l'omettre ici ferait passer pour « aucun metier renseigne » un
+    // candidat parfaitement qualifie.
+    data: { code: 'DEAS', libelle: "Diplome d'Etat d'aide-soignant", romeCode: 'J1501' },
   });
 
   const candidatA = await prisma.candidat.create({

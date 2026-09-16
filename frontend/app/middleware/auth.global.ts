@@ -46,14 +46,14 @@ const PAGES_VITRINE = new Set([
 /**
  * Sections vitrine déclarées en préfixe.
  *
- * `PAGES_VITRINE` fait des égalités exactes, ce qui ne sait pas couvrir une
- * page portant un identifiant. Le détail d'une offre republiée en porte un
- * (`/offres/213SKMR`), et sans cette liste il renverrait vers le formulaire de
- * connexion — pour une annonce publique, que France Travail affiche par
- * ailleurs à tout le monde.
+ * `PAGES_VITRINE` fait des égalités exactes, ce qui ne saurait pas couvrir une
+ * page portant un identifiant. `/offres` n'en a plus aujourd'hui, mais la
+ * rubrique est appelée à s'étoffer d'une fiche par mission, et l'oubli se
+ * remarquerait mal : la page s'afficherait, puis renverrait vers le formulaire
+ * de connexion pour une annonce pourtant publique.
  *
- * À ne pas confondre avec `/missions`, qui porte les missions de Relève et
- * reste réservé aux candidats connectés.
+ * À ne pas confondre avec `/missions`, qui porte les missions vues depuis
+ * l'espace d'un candidat connecté.
  */
 const SECTIONS_VITRINE = ['/offres'] as const;
 

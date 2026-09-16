@@ -83,9 +83,9 @@ describe('inscription des deux profils', () => {
         .send({ ...sansCase, compte: { ...sansCase.compte, email: 'sans.case@test.example' } })
         .expect(400);
 
-      expect(
-        await prisma.utilisateur.count({ where: { email: 'sans.case@test.example' } }),
-      ).toBe(0);
+      expect(await prisma.utilisateur.count({ where: { email: 'sans.case@test.example' } })).toBe(
+        0,
+      );
     });
 
     it('refuse une case decochee envoyee telle quelle', async () => {

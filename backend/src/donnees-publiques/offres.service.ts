@@ -1,14 +1,6 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Prisma, StatutOffreCollectee, type OffreCollectee } from '@prisma/client';
-import type {
-  Barometre,
-  CompetenceOffre,
-  OffrePubliqueDetail,
-  OffrePubliqueResume,
-  OffresQuery,
-  PageResultat,
-  SuggestionTaux,
-} from '@releve/shared';
+import { Injectable, Logger } from '@nestjs/common';
+import { OrigineCoordonnees, Prisma, StatutOffreCollectee } from '@prisma/client';
+import type { Barometre, SuggestionTaux } from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { CacheService } from './cache.service';
 import { FranceTravailClient, type CriteresRecherche } from './france-travail.client';
@@ -144,8 +136,6 @@ export class OffresService {
         communeNom: offre.communeNom,
         communeCode: offre.communeCode,
         codePostal: offre.codePostal,
-        latitude: offre.latitude,
-        longitude: offre.longitude,
         tauxHoraire: offre.tauxHoraire,
         salaireLibelle: offre.salaireLibelle,
         experienceExigee: offre.experienceExigee,
@@ -172,10 +162,30 @@ export class OffresService {
         vueLe: debutBalayage,
       };
 
+      /**
+       * Les coordonnees sont ecrites a part, et c'est un piege qu'il faut
+       * nommer : France Travail ne geolocalise qu'une annonce sur sept, et les
+       * autres sont situees ici au centre de leur commune. Les inclure dans
+       * `donnees` ferait ecraser ce travail par le `null` de la source a chaque
+       * import — le geocodage serait refait tous les jours pour etre efface
+       * toutes les nuits.
+       *
+       * Absentes de l'objet, les colonnes ne sont pas touchees a la mise a
+       * jour, et prennent leur valeur par defaut a la creation.
+       */
+      const coordonnees =
+        offre.latitude !== null && offre.longitude !== null
+          ? {
+              latitude: offre.latitude,
+              longitude: offre.longitude,
+              origineCoordonnees: OrigineCoordonnees.SOURCE,
+            }
+          : {};
+
       await this.prisma.offreCollectee.upsert({
         where: { id: offre.id },
-        update: donnees,
-        create: { id: offre.id, ...donnees },
+        update: { ...donnees, ...coordonnees },
+        create: { id: offre.id, ...donnees, ...coordonnees },
       });
 
       enregistrees += 1;
@@ -327,123 +337,6 @@ export class OffresService {
     await this.cache.ecrire(cle, barometre, CACHE_SECONDES);
 
     return barometre;
-  }
-
-  /**
-   * Liste publique des offres republiees.
-   *
-   * Seules les ACTIVE sortent : une offre retiree chez la source doit
-   * disparaitre du site, meme si elle reste en base pour le barometre.
-   *
-   * Aucun dedoublonnage ici, contrairement au barometre. Deux agences qui
-   * publient la meme mission publient deux offres reelles, et en masquer une
-   * reviendrait a amputer le catalogue que la licence demande de restituer.
-   */
-  async lister(query: OffresQuery): Promise<PageResultat<OffrePubliqueResume>> {
-    const where: Prisma.OffreCollecteeWhereInput = {
-      statut: StatutOffreCollectee.ACTIVE,
-      ...(query.departement ? { departement: query.departement } : {}),
-      ...(query.rome ? { romeCode: query.rome } : {}),
-      ...(query.tauxMinimum !== undefined ? { tauxHoraire: { gte: query.tauxMinimum } } : {}),
-      ...(query.recherche
-        ? {
-            OR: [
-              { intitule: { contains: query.recherche, mode: 'insensitive' } },
-              { entreprise: { contains: query.recherche, mode: 'insensitive' } },
-              { communeNom: { contains: query.recherche, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-    };
-
-    // `nulls: 'last'` sur le taux : sur ce secteur une offre sur seize
-    // n'annonce aucune remuneration, et Postgres trierait ces NULL en tete d'un
-    // classement decroissant — la liste s'ouvrirait sur les offres muettes.
-    const orderBy: Prisma.OffreCollecteeOrderByWithRelationInput[] =
-      query.tri === 'TAUX_DECROISSANT'
-        ? [{ tauxHoraire: { sort: 'desc', nulls: 'last' } }, { publieeLe: 'desc' }]
-        : [{ publieeLe: 'desc' }];
-
-    const [total, lignes] = await Promise.all([
-      this.prisma.offreCollectee.count({ where }),
-      this.prisma.offreCollectee.findMany({
-        where,
-        orderBy,
-        skip: (query.page - 1) * query.limite,
-        take: query.limite,
-      }),
-    ]);
-
-    return {
-      donnees: lignes.map((ligne) => this.enResume(ligne)),
-      total,
-      page: query.page,
-      limite: query.limite,
-    };
-  }
-
-  /**
-   * Detail d'une offre republiee.
-   *
-   * Une offre expiree renvoie 404 plutot que son contenu : la licence impose
-   * qu'elle disparaisse, et un lien partage la veille ne doit pas continuer a
-   * afficher une mission deja pourvue.
-   */
-  async detail(id: string): Promise<OffrePubliqueDetail> {
-    const offre = await this.prisma.offreCollectee.findFirst({
-      where: { id, statut: StatutOffreCollectee.ACTIVE },
-    });
-
-    if (!offre) {
-      throw new NotFoundException("Cette offre n'est plus diffusee");
-    }
-
-    return {
-      ...this.enResume(offre),
-      description: offre.description,
-      entrepriseDescription: offre.entrepriseDescription,
-      romeCode: offre.romeCode,
-      romeLibelle: offre.romeLibelle,
-      experienceLibelle: offre.experienceLibelle,
-      qualificationLibelle: offre.qualificationLibelle,
-      secteurActiviteLibelle: offre.secteurActiviteLibelle,
-      competences: (offre.competences ?? []) as unknown as CompetenceOffre[],
-      horaires: (offre.horaires ?? []) as unknown as string[],
-      conditionsExercice: (offre.conditionsExercice ?? []) as unknown as string[],
-      natureContrat: offre.natureContrat,
-      alternance: offre.alternance,
-      latitude: offre.latitude,
-      longitude: offre.longitude,
-    };
-  }
-
-  /**
-   * Passage de la ligne en base a ce que voit le visiteur.
-   *
-   * `intituleNormalise` n'apparait volontairement pas : c'est une valeur
-   * derivee, calculee pour regrouper des annonces dans le barometre. L'afficher
-   * a la place du titre de l'employeur reviendrait a denaturer l'offre, ce que
-   * la licence de reutilisation interdit.
-   */
-  private enResume(ligne: OffreCollectee): OffrePubliqueResume {
-    return {
-      id: ligne.id,
-      source: ligne.source,
-      intitule: ligne.intitule,
-      entreprise: ligne.entreprise,
-      communeNom: ligne.communeNom,
-      departement: ligne.departement,
-      codePostal: ligne.codePostal,
-      salaireLibelle: ligne.salaireLibelle,
-      tauxHoraire: ligne.tauxHoraire === null ? null : Number(ligne.tauxHoraire),
-      typeContratLibelle: ligne.typeContratLibelle,
-      dureeTravailLibelle: ligne.dureeTravailLibelle,
-      experienceExigee: ligne.experienceExigee,
-      nombrePostes: ligne.nombrePostes,
-      publieeLe: ligne.publieeLe.toISOString(),
-      actualiseeLe: ligne.actualiseeLe?.toISOString() ?? null,
-      urlOrigine: ligne.urlOrigine,
-    };
   }
 
   /**

@@ -59,15 +59,15 @@ const liens = computed<{ to: string; label: string }[]>(() => {
 /**
  * Navigation publique du canvas.
  *
- * L'entree « Missions » du canvas n'est toujours pas reprise : `GET /missions`
- * exige une session, et les missions de Releve ne se lisent que connecte.
- * « Offres du marche » est autre chose, et l'intitule doit le dire — ce sont
- * les annonces publiques republiees depuis France Travail, dont la candidature
- * se fait chez la source.
+ * L'entree « Missions » du canvas devient ici « Nos offres d'emploi ». Le
+ * possessif n'est pas de la coquetterie : il distingue nos missions, sur
+ * lesquelles on postule ici, des offres du marche collectees sur France
+ * Travail, qui ne s'affichent qu'a un candidat connecte et sur lesquelles on
+ * postule ailleurs.
  */
 const liensVitrine = [
   { to: '/accueil', label: 'Accueil' },
-  { to: '/offres', label: 'Offres du marché' },
+  { to: '/offres', label: "Nos offres d'emploi" },
   { to: '/fonctionnement', label: 'Comment ça marche' },
   { to: '/a-propos', label: 'À propos' },
   { to: '/faq', label: 'FAQ' },
@@ -80,7 +80,7 @@ const colonnesPied = [
     titre: 'Candidats',
     liens: [
       { to: '/fonctionnement', label: 'Comment ça marche' },
-      { to: '/offres', label: 'Offres du marché' },
+      { to: '/offres', label: "Nos offres d'emploi" },
       { to: '/inscription/interimaire', label: 'Créer un compte' },
       { to: '/connexion', label: 'Se connecter' },
     ],

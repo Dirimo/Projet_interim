@@ -66,7 +66,12 @@ describe('notifications du candidat', () => {
 
     for (let jour = 1; jour <= 7; jour += 1) {
       await prisma.disponibilite.create({
-        data: { candidatId: jeu.candidatA, jourSemaine: jour, heureDebut: '06:00', heureFin: '20:00' },
+        data: {
+          candidatId: jeu.candidatA,
+          jourSemaine: jour,
+          heureDebut: '06:00',
+          heureFin: '20:00',
+        },
       });
     }
   }

@@ -1,61 +1,86 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
-import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import {
-  offresQuerySchema,
-  type OffrePubliqueDetail,
-  type OffrePubliqueResume,
-  type OffresQuery,
+  missionsVitrineQuerySchema,
+  suggestionsQuerySchema,
+  type MissionsVitrineQuery,
+  type MissionVitrine,
+  type OptionsVitrine,
   type PageResultat,
+  type SuggestionsMarche,
+  type SuggestionsQuery,
+  type UtilisateurSession,
 } from '@releve/shared';
-import { Public } from '../auth/auth.decorateurs';
+import { ForbiddenException } from '@nestjs/common';
+import { Public, Roles, UtilisateurCourant } from '../auth/auth.decorateurs';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { OffresService } from './offres.service';
+import { VitrineService } from './vitrine.service';
 
 /**
- * Offres publiques republiees depuis France Travail.
+ * Les offres d'emploi telles que le site les presente.
  *
- * Le seul controleur ouvert sans session du cote metier, et c'est voulu : ces
- * offres sont de la donnee publique, un candidat doit pouvoir les lire avant de
- * s'inscrire. C'est meme l'interet de les republier.
+ * Deux routes ouvertes et une fermee, et la frontiere entre elles est la
+ * distinction la plus importante de ce controleur.
  *
- * Deux choses n'en sortent jamais. Les coordonnees du recruteur, exclues de la
- * licence de reutilisation, ne sont pas collectees — elles ne peuvent donc pas
- * fuir ici. Et `intituleNormalise`, valeur derivee pour le barometre, reste
- * interne : republier une annonce sous un titre reecrit la denaturerait.
+ * Ce qui est ouvert, ce sont **nos** missions : celles que les etablissements
+ * deposent sur Releve, sur lesquelles on postule ici, et dont l'agence recoit
+ * les candidatures.
  *
- * A ne pas confondre avec `/missions`, qui porte les missions de Releve et
- * demande une session. Ce controleur ne recoit aucune candidature : on postule
- * chez la source, par `urlOrigine`.
+ * Ce qui est ferme, ce sont les offres collectees sur France Travail. Elles ne
+ * sont plus republiees au tout-venant : elles servent a suggerer des pistes a
+ * un candidat identifie, avec leur source citee et un lien vers l'annonce
+ * d'origine. Les melanger aux missions Releve ferait croire a un candidat qu'il
+ * postule ici, et denaturerait des annonces qui appartiennent a d'autres
+ * employeurs.
  */
 @ApiTags('offres')
 @Controller('offres')
 export class OffresController {
-  constructor(private readonly offres: OffresService) {}
+  constructor(private readonly vitrine: VitrineService) {}
 
-  @Get()
+  // Declaree avant toute route a parametre : « options » serait sinon lu comme
+  // un identifiant.
+  @Get('options')
   @Public()
-  @ApiOperation({ summary: "Lister les offres d'interim republiees" })
-  @ApiQuery({ name: 'recherche', required: false })
-  @ApiQuery({ name: 'departement', required: false })
-  @ApiQuery({ name: 'rome', required: false })
-  @ApiQuery({ name: 'tauxMinimum', required: false, type: Number })
-  @ApiQuery({ name: 'tri', required: false, enum: ['RECENTES', 'TAUX_DECROISSANT'] })
-  @ApiQuery({ name: 'page', required: false, type: Number })
-  @ApiQuery({ name: 'limite', required: false, type: Number })
-  lister(
-    @Query(new ZodValidationPipe(offresQuerySchema)) query: OffresQuery,
-  ): Promise<PageResultat<OffrePubliqueResume>> {
-    return this.offres.lister(query);
+  @ApiOperation({ summary: 'Departements, villes et metiers proposes au filtrage' })
+  options(): Promise<OptionsVitrine> {
+    return this.vitrine.options();
   }
 
   /**
-   * L'identifiant est celui de la source ("213YHHM"), pas un UUID : pas de
-   * `ParseUUIDPipe` ici, il rejetterait toutes les offres.
+   * Suggestions issues du marche, pour le candidat connecte.
+   *
+   * Reservee au candidat, et pas seulement par prudence : sans son metier et
+   * son adresse, la question n'a pas de reponse — il n'y a ni ROME a croiser ni
+   * point depuis lequel mesurer une distance.
    */
-  @Get(':id')
+  @Get('suggestions')
+  @Roles('CANDIDAT')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Offres du marche proches du profil, par metier et distance' })
+  @ApiQuery({ name: 'limite', required: false, type: Number })
+  suggestions(
+    @Query(new ZodValidationPipe(suggestionsQuerySchema)) query: SuggestionsQuery,
+    @UtilisateurCourant() session: UtilisateurSession,
+  ): Promise<SuggestionsMarche> {
+    if (!session.candidatId) {
+      throw new ForbiddenException('Ce compte n est rattache a aucune fiche candidat');
+    }
+
+    return this.vitrine.suggestions(session.candidatId, query.limite);
+  }
+
+  @Get()
   @Public()
-  @ApiOperation({ summary: "Detail d'une offre republiee" })
-  detail(@Param('id') id: string): Promise<OffrePubliqueDetail> {
-    return this.offres.detail(id);
+  @ApiOperation({ summary: 'Missions Releve ouvertes, visibles sans session' })
+  @ApiQuery({ name: 'departement', required: false })
+  @ApiQuery({ name: 'ville', required: false })
+  @ApiQuery({ name: 'metier', required: false })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limite', required: false, type: Number })
+  missions(
+    @Query(new ZodValidationPipe(missionsVitrineQuerySchema)) query: MissionsVitrineQuery,
+  ): Promise<PageResultat<MissionVitrine>> {
+    return this.vitrine.missions(query);
   }
 }

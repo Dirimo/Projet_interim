@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { FranceTravailClient } from './france-travail.client';
+import { GeocodageOffresService } from './geocodage-offres.service';
 import { OffresService, ROMES_SECTEUR } from './offres.service';
 
 /**
@@ -51,6 +52,7 @@ export class ImportPlanifieService {
     private readonly config: ConfigService,
     private readonly client: FranceTravailClient,
     private readonly offres: OffresService,
+    private readonly geocodage: GeocodageOffresService,
   ) {}
 
   /**
@@ -109,9 +111,17 @@ export class ImportPlanifieService {
         true,
       );
 
+      // Situer les communes nouvelles dans la foulee, et pas plus tard : une
+      // offre sans coordonnees est invisible du rapprochement candidat, et la
+      // laisser attendre le balayage suivant la ferait rater sa fenetre utile.
+      const geocodage = await this.geocodage.rattraper();
+      const couverture = await this.geocodage.couverture();
+
       this.logger.log(
         `Balayage ${moment} termine en ${Math.round((Date.now() - debut) / 1000)} s : ` +
-          `${rapport.enregistrees} offres a jour, ${rapport.expirees} retirees.`,
+          `${rapport.enregistrees} offres a jour, ${rapport.expirees} retirees, ` +
+          `${geocodage.communesSituees} commune(s) situee(s). ` +
+          `Couverture geographique : ${couverture.part} %.`,
       );
     } catch (erreur) {
       // Avalee volontairement : une API indisponible ne doit pas faire tomber

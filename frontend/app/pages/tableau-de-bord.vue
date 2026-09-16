@@ -177,6 +177,12 @@ const missionsProches = computed(() =>
         Aucune mission publiée pour le moment. Les nouvelles offres apparaissent ici dès leur
         publication.
       </p>
+
+      <!--
+        Placé après les missions Relève, et jamais avant : ce sont les offres de
+        l'agence qui priment, celles du marché ne sont qu'un complément.
+      -->
+      <AppOffresMarche />
     </template>
   </section>
 </template>

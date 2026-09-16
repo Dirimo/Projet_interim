@@ -11,6 +11,7 @@ import {
 import { readFile, writeFile } from 'node:fs/promises';
 import { AppModule } from '../app.module';
 import { FranceTravailClient } from '../donnees-publiques/france-travail.client';
+import { GeocodageOffresService } from '../donnees-publiques/geocodage-offres.service';
 import { OffresService, ROMES_SECTEUR } from '../donnees-publiques/offres.service';
 import { ConservationService } from '../documents/conservation.service';
 import { NotificationsMissionsService } from '../notifications/notifications-missions.service';
@@ -100,7 +101,7 @@ programme
    */
   .option(
     '--expirer',
-    "retirer les offres disparues de la source (reserve a un balayage complet)",
+    'retirer les offres disparues de la source (reserve a un balayage complet)',
     false,
   )
   .action(async (options) => {
@@ -353,6 +354,54 @@ programme
       console.log(`Candidats avertis   ${rapport.avertis}`);
       console.log(`Missions annoncees  ${rapport.missions}`);
       console.log(options.sec ? 'Simulation : aucun courriel envoye, rien ecrit.' : '');
+      console.log('');
+    } finally {
+      await app.close();
+    }
+  });
+
+/**
+ * Rattrapage geographique des offres collectees.
+ *
+ * France Travail ne geolocalise qu'une annonce sur sept : sur un import reel de
+ * 2 020 offres, 295 seulement portaient des coordonnees. Les autres ont
+ * pourtant leur commune et leur code postal, et la Base Adresse Nationale sait
+ * les situer gratuitement.
+ *
+ * Le travail se fait par commune, pas par offre : les 1 725 annonces non
+ * situees ne representent que 1 040 couples code postal / commune distincts. Le
+ * rattrapage initial prend donc environ une minute, et les balayages suivants
+ * n'ont plus que quelques communes nouvelles a traiter — l'import planifie les
+ * prend lui-meme au passage.
+ */
+programme
+  .command('geocoder:offres')
+  .description('Situe les offres collectees a partir de leur commune, via la BAN')
+  .option('--max <n>', 'plafond de communes a situer en une passe', Number, 400)
+  .action(async (options) => {
+    const app = await contexte();
+    const geocodage = app.get(GeocodageOffresService);
+
+    try {
+      const avant = await geocodage.couverture();
+      const rapport = await geocodage.rattraper(options.max);
+      const apres = await geocodage.couverture();
+
+      console.log('');
+      console.log(`Communes examinees     ${rapport.communesExaminees}`);
+      console.log(`  situees              ${rapport.communesSituees}`);
+      console.log(`  introuvables         ${rapport.communesIntrouvables}`);
+      console.log(`Offres situees         ${rapport.offresSituees}`);
+      console.log(
+        `Couverture             ${avant.situees}/${avant.total} (${avant.part} %) ` +
+          `-> ${apres.situees}/${apres.total} (${apres.part} %)`,
+      );
+
+      if (rapport.communesExaminees === options.max) {
+        console.log('');
+        console.log('Plafond atteint : relancer la commande pour continuer.');
+      }
+
       console.log('');
     } finally {
       await app.close();

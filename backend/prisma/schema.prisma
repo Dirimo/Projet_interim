@@ -776,6 +776,44 @@ enum StatutOffreCollectee {
   EXPIREE
 }
 
+/// D'ou viennent les coordonnees d'une offre collectee.
+///
+/// La distinction compte au moment d'afficher une distance. France Travail ne
+/// geolocalise qu'une annonce sur sept : les autres sont situees au centre de
+/// leur commune, ce qui suffit largement a filtrer sur un rayon de vingt ou
+/// trente kilometres, mais pas a annoncer « 12 km » comme une mesure. Une
+/// coordonnee deduite s'affiche avec un « environ ».
+enum OrigineCoordonnees {
+  /// Fournies telles quelles par la source.
+  SOURCE
+  /// Deduites du centre de la commune, faute de mieux.
+  COMMUNE
+}
+
+/// Commune situee une fois, puis reutilisee.
+///
+/// C'est ce qui rend le rattrapage tenable : mille sept cents offres sans
+/// coordonnees ne representent que mille quarante couples code postal / commune
+/// distincts, et une commune situee sert a toutes ses offres, aujourd'hui comme
+/// aux imports suivants. Geocoder offre par offre appellerait la Base Adresse
+/// Nationale des milliers de fois pour recalculer sans cesse les memes points.
+model CommuneGeocodee {
+  codePostal String
+  nom        String
+
+  latitude  Float?
+  longitude Float?
+
+  /// Vraie quand la BAN n'a rien su rendre de convaincant. Sans ce drapeau,
+  /// chaque import retenterait indefiniment les memes communes introuvables.
+  introuvable Boolean @default(false)
+
+  situeeLe DateTime @default(now())
+
+  @@id([codePostal, nom])
+  @@map("commune_geocodee")
+}
+
 /// Offre d'interim collectee sur une source publique.
 ///
 /// Une seule table pour deux lectures. L'affichage republie l'annonce telle
@@ -824,6 +862,10 @@ model OffreCollectee {
   codePostal  String?
   latitude    Float?
   longitude   Float?
+  /// Null tant que l'offre n'est pas situee. Voir `OrigineCoordonnees` : une
+  /// coordonnee deduite de la commune ne vaut pas une coordonnee de la source,
+  /// et l'affichage doit pouvoir le dire.
+  origineCoordonnees OrigineCoordonnees?
 
   /// Ramene a l'heure, quelle que soit la base annoncee. Null quand le libelle
   /// n'est pas exploitable : mieux vaut une absence qu'un chiffre invente.
@@ -874,5 +916,11 @@ model OffreCollectee {
   @@index([empreinte])
   @@index([statut, publieeLe])
   @@index([source, statut])
+  // Le rapprochement candidat filtre d'abord sur le metier, puis sur une boite
+  // englobante de latitude et longitude : cet index porte les deux premieres
+  // colonnes de ce filtre.
+  @@index([statut, romeCode, latitude])
+  // Le rattrapage cherche les offres sans coordonnees, commune par commune.
+  @@index([codePostal, communeNom])
   @@map("offre_collectee")
 }

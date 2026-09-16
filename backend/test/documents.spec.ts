@@ -126,9 +126,11 @@ describe('pieces justificatives', () => {
       // Multer coupe a la limite declaree : la requete n'aboutit pas, ce qui est
       // le comportement voulu — le contenu ne traverse meme pas le reseau en
       // entier.
-      await deposer(candidat, 'CV', Buffer.alloc(TAILLE_MAX_DOCUMENT + 1024, 0x41)).expect((res) => {
-        expect(res.status).toBeGreaterThanOrEqual(400);
-      });
+      await deposer(candidat, 'CV', Buffer.alloc(TAILLE_MAX_DOCUMENT + 1024, 0x41)).expect(
+        (res) => {
+          expect(res.status).toBeGreaterThanOrEqual(400);
+        },
+      );
     });
 
     it('refuse le personnel de l agence, qui ne depose pas a la place des gens', async () => {
