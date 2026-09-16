@@ -36,6 +36,11 @@ const PAGES_VITRINE = new Set([
   '/mentions-legales',
   '/conditions-utilisation',
   '/politique-confidentialite',
+  // Pas de la vitrine, mais la meme regle : on y arrive par un lien recu apres
+  // un an sans nouvelles, donc le plus souvent sans session — et renvoyer vers
+  // son tableau de bord quelqu'un qui *est* connecte lui ferait perdre la
+  // decision qu'on lui demande de prendre.
+  '/conservation',
 ]);
 
 /**

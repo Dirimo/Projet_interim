@@ -36,13 +36,15 @@ const liens = computed<{ to: string; label: string }[]>(() => {
   }
 
   if (utilisateur.value.role === 'CANDIDAT') {
+    // Les quatre entrees du canvas, et pas une de plus. « Suivi » s'atteint
+    // depuis le compteur de missions confirmees du tableau de bord et depuis
+    // une mission a laquelle on a deja postule ; « Mon espace » ne disait rien
+    // que « Mon profil » ne dise mieux, en modifiable.
     return [
       { to: '/tableau-de-bord', label: 'Tableau de bord' },
       { to: '/missions', label: 'Missions' },
-      { to: '/suivi', label: 'Suivi' },
       { to: '/mon-profil', label: 'Mon profil' },
-      { to: '/mon-espace', label: 'Mon espace' },
-      compte,
+      { to: '/mon-compte', label: 'Paramètres' },
     ];
   }
 
@@ -96,6 +98,9 @@ const colonnesPied = [
 ];
 
 const annee = new Date().getFullYear();
+
+/** Avancement du dossier, affiche en pied de barre laterale pour un candidat. */
+const { data: completude } = await useCompletude();
 
 async function sortir(): Promise<void> {
   // La deconnexion revoque la session cote API : on attend qu'elle aboutisse
@@ -170,6 +175,14 @@ async function sortir(): Promise<void> {
       <nav>
         <NuxtLink v-for="lien in liens" :key="lien.to" :to="lien.to">{{ lien.label }}</NuxtLink>
       </nav>
+
+      <!-- Carte d'avancement du canvas : elle ne s'affiche que pour un candidat,
+           les seuls a avoir un dossier a completer. -->
+      <NuxtLink v-if="completude" to="/mon-profil" class="avancement">
+        <p class="part">Profil complété à {{ completude.pourcentage }} %</p>
+        <span class="jauge"><span :style="{ width: `${completude.pourcentage}%` }" /></span>
+        <span class="suite">Compléter mon profil →</span>
+      </NuxtLink>
 
       <div class="session">
         <p class="compte">{{ utilisateur.email }}</p>
@@ -409,8 +422,10 @@ async function sortir(): Promise<void> {
 
 .laterale nav {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 4px;
+  align-content: start;
 }
 
 .laterale nav a {
@@ -433,8 +448,53 @@ async function sortir(): Promise<void> {
   background: var(--surface-2);
 }
 
+.avancement {
+  display: block;
+  padding: 16px;
+  color: inherit;
+  text-decoration: none;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.avancement:hover {
+  border-color: var(--dom);
+}
+
+.avancement:focus-visible {
+  outline: 2px solid var(--dom);
+  outline-offset: 2px;
+}
+
+.part {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.jauge {
+  display: block;
+  height: 7px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  background: var(--line);
+  border-radius: 6px;
+}
+
+.jauge span {
+  display: block;
+  height: 100%;
+  background: var(--dom);
+}
+
+.suite {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dom);
+}
+
 .session {
-  margin-top: auto;
   padding-inline: 6px;
 }
 
@@ -493,8 +553,19 @@ async function sortir(): Promise<void> {
   }
 
   .laterale nav {
+    flex: 0 1 auto;
     flex-direction: row;
     flex-wrap: wrap;
+  }
+
+  .avancement {
+    flex: none;
+    width: 220px;
+    padding: 12px 14px;
+  }
+
+  .avancement .jauge {
+    margin-bottom: 8px;
   }
 
   .session {

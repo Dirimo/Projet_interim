@@ -52,6 +52,9 @@ const compteurs = computed(() => [
     valeur: String(data.value?.confirmees.total ?? 0),
     libelle: 'Missions confirmées',
     teinte: 'vert',
+    // Le canvas ne met que quatre entrees dans la barre laterale : c'est par ce
+    // compteur qu'on atteint desormais le suivi de la mission confirmee.
+    vers: '/suivi',
   },
   {
     cle: 'candidatures',
@@ -72,6 +75,13 @@ const compteurs = computed(() => [
     teinte: 'neutre',
   },
 ]);
+
+/**
+ * `:is` ne resout pas un nom de composant passe en chaine : le gabarit sortait
+ * une balise `<NuxtLink>` inconnue du navigateur, donc un compteur qui ne
+ * cliquait pas. La resolution explicite rend le vrai composant.
+ */
+const Lien = resolveComponent('NuxtLink');
 
 const missionsProches = computed(() =>
   (data.value?.missions.donnees ?? []).map((mission) => ({
@@ -122,10 +132,17 @@ const missionsProches = computed(() =>
         </div>
 
         <div class="compteurs">
-          <div v-for="compteur in compteurs" :key="compteur.cle" class="tuile" :class="compteur.teinte">
+          <component
+            :is="compteur.vers ? Lien : 'div'"
+            v-for="compteur in compteurs"
+            :key="compteur.cle"
+            :to="compteur.vers"
+            class="tuile"
+            :class="[compteur.teinte, { cliquable: !!compteur.vers }]"
+          >
             <p class="valeur">{{ compteur.valeur }}</p>
             <p class="libelle">{{ compteur.libelle }}</p>
-          </div>
+          </component>
         </div>
       </div>
 
@@ -278,9 +295,21 @@ h1 {
 }
 
 .tuile {
+  display: block;
   padding: 22px;
+  color: inherit;
+  text-decoration: none;
   border: 1px solid var(--line);
   border-radius: 18px;
+}
+
+.tuile.cliquable:hover {
+  border-color: var(--dom);
+}
+
+.tuile.cliquable:focus-visible {
+  outline: 2px solid var(--dom);
+  outline-offset: 2px;
 }
 
 .tuile.vert {
@@ -338,7 +367,9 @@ h1 {
 
 .missions {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  /* `min()` plutot que 300px sec : une piste de 300px imposee deborde de
+   * l'ecran sur un telephone etroit, et c'est la carte entiere qui sort. */
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
   gap: 16px;
 }
 
@@ -405,11 +436,15 @@ h1 {
   white-space: nowrap;
 }
 
+/* Les deux enfants sont en `nowrap` : sans retour a la ligne, aucun des deux
+ * ne peut retrecir et la remuneration depasse le bord arrondi de la carte des
+ * que la grille passe a trois colonnes. Le taux garde sa place a droite sur
+ * une ligne comme sur deux grace a la marge automatique. */
 .bas-mission {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px 10px;
   align-items: center;
-  justify-content: space-between;
 }
 
 .creneau {
@@ -423,6 +458,7 @@ h1 {
 }
 
 .taux {
+  margin-left: auto;
   font-size: 16px;
   font-weight: 700;
   color: var(--dom);

@@ -17,11 +17,20 @@
  * l'editeur.
  */
 
+import { DATE_CONDITIONS_LISIBLE } from '@releve/shared';
+
 /** Adresse deja utilisee par le formulaire de contact. */
 export const ADRESSE_CONTACT = 'contact@releve.example';
 
-/** Date de la derniere revision des textes, affichee en pied de chaque page. */
-export const DERNIERE_REVISION = '15 septembre 2026';
+/**
+ * Date de la derniere revision des textes, affichee en pied de chaque page.
+ *
+ * Reprise du paquet partage et non ecrite ici : c'est la meme revision que
+ * celle enregistree avec le consentement, a l'inscription. Deux valeurs
+ * separees finiraient par diverger, et la page afficherait alors une date que
+ * personne n'a acceptee.
+ */
+export const DERNIERE_REVISION = DATE_CONDITIONS_LISIBLE;
 
 export interface Mention {
   libelle: string;

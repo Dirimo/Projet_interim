@@ -1,10 +1,5 @@
 <script setup lang="ts">
-import type {
-  CandidatDetail,
-  CompletudeProfil,
-  Disponibilite,
-  QualificationResume,
-} from '@releve/shared';
+import type { CandidatDetail, Disponibilite, QualificationResume } from '@releve/shared';
 import { JOURS_SEMAINE, PRECISION_GEOCODAGE_LIBELLES } from '@releve/shared';
 
 useHead({ title: 'Mon profil - Relève' });
@@ -15,10 +10,7 @@ const { data: profil, refresh } = await useAsyncData('mon-profil', () =>
   requete<CandidatDetail>('/mon-profil'),
 );
 
-const { data: completude, refresh: rafraichirCompletude } = await useAsyncData(
-  'mon-profil:completude',
-  () => requete<CompletudeProfil>('/mon-profil/completude'),
-);
+const { data: completude, refresh: rafraichirCompletude } = await useCompletude();
 
 const { data: referentiel } = await useAsyncData('referentiel-diplomes', () =>
   requete<QualificationResume[]>('/qualifications'),

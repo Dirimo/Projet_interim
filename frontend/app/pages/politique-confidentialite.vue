@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { DELAI_REPONSE_JOURS, DUREE_CONSERVATION_MOIS } from '@releve/shared';
 import { ADRESSE_CONTACT, AUTORITE_CONTROLE, DERNIERE_REVISION, DONNEES } from '~/data/legal';
 
 useHead({
@@ -121,9 +122,26 @@ useHead({
           votre navigateur, sur cet appareil, jamais transmises.
         </li>
       </ul>
+
+      <h3>Vos pièces justificatives</h3>
       <p>
-        La durée de conservation du dossier candidat lui-même relève de l'agence et figure
-        ci-dessous.
+        Chaque pièce que vous déposez — numéro de sécurité sociale, diplôme, CV, pièce d'identité,
+        RIB — est conservée <strong>{{ DUREE_CONSERVATION_MOIS }} mois</strong> à compter de son
+        dépôt. Déposer une nouvelle version fait repartir ce délai.
+      </p>
+      <p>
+        À cette échéance, nous vous écrivons à l'adresse de votre compte pour vous demander si vous
+        souhaitez que nous les gardions. Un clic suffit à les conserver
+        {{ DUREE_CONSERVATION_MOIS }} mois de plus, ou à les effacer immédiatement.
+        <strong>
+          Sans réponse de votre part dans les {{ DELAI_REPONSE_JOURS }} jours, elles sont effacées
+        </strong>
+        : votre silence ne vaut pas accord. Votre compte et votre dossier, eux, restent ouverts, et
+        vous pouvez redéposer vos pièces à tout moment.
+      </p>
+      <p>
+        La durée de conservation du dossier candidat lui-même — vos coordonnées, votre parcours, vos
+        disponibilités — relève de l'agence et figure ci-dessous.
       </p>
     </section>
 
