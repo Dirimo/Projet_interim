@@ -17,6 +17,7 @@ export * from './verification';
 export * from './reinitialisation';
 export * from './mission';
 export * from './proposition';
+export * from './releve';
 export * from './matching';
 export * from './document';
 export * from './conservation';

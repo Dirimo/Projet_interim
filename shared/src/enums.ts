@@ -78,3 +78,22 @@ export const roleUtilisateurSchema = z.enum([
   'CANDIDAT',
 ]);
 export type RoleUtilisateur = z.infer<typeof roleUtilisateurSchema>;
+
+/**
+ * Le cycle de vie d'un releve d'heures.
+ *
+ * SAISI est le seul etat ou l'interimaire peut encore corriger. VALIDE_CLIENT
+ * fige les heures et ouvre la facturation. CONTESTE renvoie la semaine en
+ * discussion sans effacer ce qui a ete saisi - c'est la trace du desaccord qui
+ * compte. EXPORTE marque le passage en paie : a ce stade plus rien ne bouge,
+ * une erreur se corrige par un avoir et non par une modification.
+ */
+export const statutReleveSchema = z.enum(['SAISI', 'VALIDE_CLIENT', 'CONTESTE', 'EXPORTE']);
+export type StatutReleve = z.infer<typeof statutReleveSchema>;
+
+export const STATUT_RELEVE_LIBELLES: Record<StatutReleve, string> = {
+  SAISI: 'Saisi',
+  VALIDE_CLIENT: 'Valide par le client',
+  CONTESTE: 'Conteste',
+  EXPORTE: 'Exporte en paie',
+};
