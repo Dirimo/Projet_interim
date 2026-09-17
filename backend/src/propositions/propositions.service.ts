@@ -12,12 +12,14 @@ import type {
   PointFortCandidat,
   PropositionListQuery,
   PropositionResume,
+  PropositionsAgenceCreate,
   ScoreDetail,
   UtilisateurSession,
 } from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { MatchingService } from '../matching/matching.service';
 import { dureeHeures, MissionsService } from '../missions/missions.service';
+import { EvenementsService } from '../evenements/evenements.service';
 
 /** Etats dans lesquels une mission accepte encore des candidatures. */
 const ETATS_OUVERTS = ['PUBLIEE', 'EN_MATCHING', 'PROPOSEE'] as const;
@@ -100,6 +102,7 @@ export class PropositionsService {
     private readonly prisma: PrismaService,
     private readonly missions: MissionsService,
     private readonly matching: MatchingService,
+    private readonly evenements: EvenementsService,
   ) {}
 
   /**
@@ -298,6 +301,12 @@ export class PropositionsService {
         ...avecRelations,
       });
 
+      await this.evenements.consigner({
+        missionId,
+        type: 'proposition.acceptee',
+        propositionIds: [proposition.id],
+      });
+
       return this.resume(proposition);
     } catch (cause) {
       if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === 'P2002') {
@@ -306,6 +315,117 @@ export class PropositionsService {
 
       throw cause;
     }
+  }
+
+  /**
+   * L'agence propose des candidats, depuis le classement d'une mission.
+   *
+   * L'autre sens de circulation, et le seul qui manquait. La ligne nait
+   * ENVOYEE : personne n'a encore dit oui. C'est la difference avec la
+   * candidature spontanee, ou l'interesse a deja donne son accord en cliquant.
+   *
+   * La meme porte d'eligibilite que partout ailleurs, et elle refuse l'envoi
+   * entier plutot que d'ecarter en silence. Un chargé de recrutement qui
+   * selectionne trois profils et n'en voit partir que deux ne saurait pas
+   * lequel manque, ni pourquoi : mieux vaut nommer le candidat et le motif, et
+   * le laisser recommencer sans lui.
+   *
+   * Un seul evenement pour tout l'envoi, et non un par ligne : il s'est passe
+   * une chose — l'agence a propose — et ceux qui ecoutent doivent en voir une.
+   */
+  async proposer(
+    missionId: string,
+    donnees: PropositionsAgenceCreate,
+    session: UtilisateurSession,
+  ): Promise<PropositionResume[]> {
+    const mission = await this.prisma.mission.findFirst({
+      where: {
+        id: missionId,
+        ...(session.agenceId ? { agenceId: session.agenceId } : {}),
+      },
+      select: { id: true, statut: true, agenceId: true },
+    });
+
+    if (!mission) {
+      throw new NotFoundException('Mission introuvable');
+    }
+
+    if (!(ETATS_OUVERTS as readonly string[]).includes(mission.statut)) {
+      throw new ForbiddenException("Cette mission n'accepte plus de candidature");
+    }
+
+    // La meme personne citee deux fois dans la liste ne doit produire qu'une
+    // ligne — et surtout pas une violation d'unicite au milieu de la boucle.
+    const demandes = [...new Set(donnees.candidatIds)];
+
+    const existantes = await this.prisma.proposition.findMany({
+      where: { missionId, candidatId: { in: demandes } },
+      select: { candidatId: true },
+    });
+
+    const dejaProposes = new Set(existantes.map((ligne) => ligne.candidatId));
+    const aCreer: { candidatId: string; score: ScoreDetail }[] = [];
+
+    for (const candidatId of demandes) {
+      if (dejaProposes.has(candidatId)) {
+        continue;
+      }
+
+      // Le vivier est borne a l'agence de la mission, comme dans le classement :
+      // sans ce controle, un identifiant devine ouvrirait le vivier voisin.
+      const candidat = await this.prisma.candidat.findFirst({
+        where: { id: candidatId, agenceId: mission.agenceId },
+        select: { id: true, nom: true, prenom: true },
+      });
+
+      if (!candidat) {
+        throw new NotFoundException(`Candidat introuvable dans le vivier de l agence`);
+      }
+
+      const evaluation = await this.matching.evaluer(missionId, candidatId);
+
+      if (!evaluation) {
+        throw new NotFoundException('Mission introuvable');
+      }
+
+      if (evaluation.motifs.length) {
+        throw new BadRequestException(
+          `${candidat.prenom} ${candidat.nom} : ` +
+            evaluation.motifs.map((motif) => motif.libelle).join(' · '),
+        );
+      }
+
+      aCreer.push({ candidatId, score: evaluation.score });
+    }
+
+    if (!aCreer.length) {
+      return [];
+    }
+
+    const creees = await this.prisma.$transaction(
+      aCreer.map((ligne) =>
+        this.prisma.proposition.create({
+          data: {
+            missionId,
+            candidatId: ligne.candidatId,
+            statut: 'ENVOYEE',
+            message: donnees.message ?? null,
+            score: ligne.score.total,
+            detailScore: ligne.score as unknown as Prisma.InputJsonValue,
+          },
+          ...avecRelations,
+        }),
+      ),
+    );
+
+    await this.evenements.consigner({
+      missionId,
+      type: 'proposition.envoyee',
+      auteur: session,
+      propositionIds: creees.map((proposition) => proposition.id),
+    });
+
+    return creees.map((proposition) => this.resume(proposition));
   }
 
   async lister(
@@ -419,6 +539,13 @@ export class PropositionsService {
     const proposition = await this.prisma.proposition.findUniqueOrThrow({
       where: { id },
       ...avecRelations,
+    });
+
+    await this.evenements.consigner({
+      missionId: existante.missionId,
+      type: 'mission.pourvue',
+      auteur: session,
+      propositionIds: [id],
     });
 
     return this.resume(proposition);

@@ -21,12 +21,27 @@ export const candidatureCreateSchema = z.object({
 
 export type CandidatureCreate = z.infer<typeof candidatureCreateSchema>;
 
-export const propositionCreateSchema = z.object({
-  candidatId: z.string().uuid('Candidat invalide'),
+/**
+ * L'agence propose, depuis le classement d'une mission.
+ *
+ * Plusieurs candidats en un appel, et non un par un. C'est le geste réel : on
+ * regarde un classement et on retient les trois premiers. Un appel par candidat
+ * produirait trois écritures, trois événements, et — pour qui écoute ces
+ * événements — trois alertes là où il s'est passé une seule chose.
+ *
+ * Le doublon est toléré et non refusé : proposer une liste dont un candidat a
+ * déjà été proposé ne doit pas faire échouer les autres. Ce sont les nouvelles
+ * lignes qui sont rendues.
+ */
+export const propositionsAgenceCreateSchema = z.object({
+  candidatIds: z
+    .array(z.string().uuid('Candidat invalide'))
+    .min(1, 'Au moins un candidat')
+    .max(20, 'Vingt candidats au plus par envoi'),
   message: z.string().trim().max(1000).optional(),
 });
 
-export type PropositionCreate = z.infer<typeof propositionCreateSchema>;
+export type PropositionsAgenceCreate = z.infer<typeof propositionsAgenceCreateSchema>;
 
 export const refusSchema = z.object({
   motif: z.string().trim().max(300).optional(),

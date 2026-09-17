@@ -20,6 +20,7 @@ import type {
 import { PrismaService } from '../prisma/prisma.service';
 import { dansLeRayon, distanceKm } from '../matching/score';
 import { GeocodageService } from '../geocodage/geocodage.service';
+import { EvenementsService } from '../evenements/evenements.service';
 
 /** Etats dans lesquels une mission cherche encore quelqu'un. */
 const ETATS_OUVERTS = [
@@ -144,6 +145,7 @@ export class MissionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly geocodage: GeocodageService,
+    private readonly evenements: EvenementsService,
   ) {}
 
   private resume(mission: MissionChargee, depuis?: PointCandidat): MissionResume {
@@ -525,6 +527,14 @@ export class MissionsService {
       });
     });
 
+    // Apres la transaction, jamais dedans : un evenement emis depuis une
+    // transaction annulee annoncerait une mission qui n'existe pas.
+    await this.evenements.consigner({
+      missionId: mission.id,
+      type: 'mission.publiee',
+      auteur: session,
+    });
+
     return this.resume(mission);
   }
 
@@ -601,6 +611,12 @@ export class MissionsService {
         data: { statut: 'EXPIREE', repondueLe: new Date() },
       }),
     ]);
+
+    await this.evenements.consigner({
+      missionId: id,
+      type: 'mission.annulee',
+      auteur: session,
+    });
 
     return this.resume(mission);
   }

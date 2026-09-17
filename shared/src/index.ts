@@ -26,3 +26,4 @@ export * from './notifications';
 export * from './profil';
 export * from './offres';
 export * from './tension';
+export * from './evenements';

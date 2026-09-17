@@ -17,6 +17,7 @@ import { MatchingModule } from './matching/matching.module';
 import { MissionsModule } from './missions/missions.module';
 import { MonProfilModule } from './mon-profil/mon-profil.module';
 import { PropositionsModule } from './propositions/propositions.module';
+import { EvenementsModule } from './evenements/evenements.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { PropositionsModule } from './propositions/propositions.module';
     NotificationsModule,
     MonProfilModule,
     PropositionsModule,
+    EvenementsModule,
   ],
 })
 export class AppModule {}

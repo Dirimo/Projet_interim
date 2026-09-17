@@ -13,6 +13,7 @@ import { JetonsUsageUniqueService } from './jetons-usage-unique.service';
 import { SessionsService } from './sessions.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
+import { ServiceTokenGuard } from './service-token.guard';
 
 /**
  * `expiresIn` est type par jsonwebtoken comme un litteral de duree ("15m",
@@ -63,7 +64,11 @@ type DureeJeton = NonNullable<NonNullable<JwtModuleOptions['signOptions']>['expi
     JetonsUsageUniqueService,
     SessionsService,
     // L'ordre compte : on limite le debit, puis on identifie, puis on verifie le role.
+    // `ServiceTokenGuard` s'intercale avant l'identification : sur les routes
+    // qu'il garde, il n'y a pas d'utilisateur a identifier — seulement un
+    // appelant machine a reconnaitre, ou a refuser avant tout le reste.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: ServiceTokenGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],

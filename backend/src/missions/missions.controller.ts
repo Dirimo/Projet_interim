@@ -6,6 +6,7 @@ import {
   missionCreateSchema,
   missionListQuerySchema,
   missionUpdateSchema,
+  propositionsAgenceCreateSchema,
   ROLES_AGENCE,
   type CandidatureCreate,
   type ClassementMission,
@@ -18,6 +19,7 @@ import {
   type OptionsPublication,
   type PageResultat,
   type PropositionResume,
+  type PropositionsAgenceCreate,
   type ResumeMissions,
   type UtilisateurSession,
 } from '@releve/shared';
@@ -143,5 +145,23 @@ export class MissionsController {
     }
 
     return this.propositions.postuler(id, session.candidatId, donnees.message);
+  }
+
+  /**
+   * L'autre sens : l'agence propose, depuis le classement.
+   *
+   * Reservee a l'agence, et non ouverte au client : l'etablissement choisit
+   * parmi ce qu'on lui presente, il ne puise pas dans le vivier lui-meme. La
+   * liste des candidats ne lui est d'ailleurs jamais rendue en entier.
+   */
+  @Post(':id/propositions')
+  @Roles(...ROLES_AGENCE)
+  @ApiOperation({ summary: 'Proposer un ou plusieurs candidats a cette mission' })
+  proposer(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(propositionsAgenceCreateSchema)) donnees: PropositionsAgenceCreate,
+    @UtilisateurCourant() session: UtilisateurSession,
+  ): Promise<PropositionResume[]> {
+    return this.propositions.proposer(id, donnees, session);
   }
 }

@@ -77,3 +77,22 @@ process.env.GEOCODAGE_ACTIF = 'false';
  * dans la vraie vie, contiennent une piece d'identite.
  */
 process.env.STOCKAGE_DOCUMENTS = join(RACINE, 'donnees', 'documents-test');
+
+/**
+ * Aucun webhook emis depuis les tests.
+ *
+ * Meme raison que pour le SMTP : une suite lancee sur un poste qui fait tourner
+ * n8n enverrait de vrais evenements dans des workflows reels. L'emetteur se met
+ * alors en sourdine et retient les evenements en memoire, ce qui permet de
+ * verifier ce qui *serait* parti sans que rien ne parte.
+ */
+process.env.N8N_EVENTS_WEBHOOK_URL = '';
+
+/**
+ * Jeton de service fixe, connu de la suite.
+ *
+ * Les routes internes repondent 503 tant qu'il est absent : sans cette ligne,
+ * les tests verifieraient la fermeture par defaut et jamais le comportement
+ * nominal.
+ */
+process.env.INTERNAL_SERVICE_TOKEN = 'jeton-de-service-de-test';
