@@ -1,3 +1,4 @@
+import type { MissionAnnoncee } from '@releve/shared';
 import type { Courriel } from './mail.service';
 
 /**
@@ -208,4 +209,298 @@ export function courrielReinitialisation(
   );
 
   return { destinataire, sujet: `Releve — ${titre}`, texte, html };
+}
+
+/**
+ * Fin de conservation des pieces justificatives.
+ *
+ * Ce message n'annonce pas une bonne nouvelle : sans reponse, les pieces
+ * seront effacees. Il dit donc, dans cet ordre, ce qui est concerne, ce qui se
+ * passe si la personne ne fait rien, et jusqu'a quand elle peut repondre. Un
+ * seul lien, qui mene a une page ou elle choisit — plutot que deux liens dans
+ * un courriel, ou le clic irreversible se trouverait a deux centimetres de
+ * l'autre.
+ */
+export function courrielConservationDocuments(
+  destinataire: string,
+  prenom: string | null,
+  pieces: string[],
+  lien: string,
+  effacementLe: string,
+): Courriel {
+  const bonjour = prenom ? `Bonjour ${prenom},` : 'Bonjour,';
+  const titre = 'Vos pieces justificatives arrivent a un an';
+
+  const texte = [
+    bonjour,
+    '',
+    "Les pieces suivantes de votre dossier Releve ont ete deposees il y a un an :",
+    '',
+    ...pieces.map((piece) => `  - ${piece}`),
+    '',
+    'Souhaitez-vous que nous les conservions ? Repondez en ouvrant ce lien :',
+    '',
+    lien,
+    '',
+    `Sans reponse de votre part avant le ${effacementLe}, elles seront effacees.`,
+    "Vous pourrez les redeposer a tout moment depuis votre profil ; nous ne gardons rien d'autre de ces fichiers.",
+    '',
+    PIED,
+  ].join('\n');
+
+  const liste = pieces
+    .map(
+      (piece) =>
+        `<li style="margin:0 0 6px">${echapper(piece)}</li>`,
+    )
+    .join('');
+
+  const html = enveloppe(
+    titre,
+    `<p style="margin:0 0 16px;line-height:1.6">${echapper(bonjour)}</p>
+     <p style="margin:0 0 12px;line-height:1.6">
+       Les pieces suivantes de votre dossier Releve ont ete deposees il y a un an&nbsp;:
+     </p>
+     <ul style="margin:0 0 24px;padding-left:20px;line-height:1.6">${liste}</ul>
+     <p style="margin:0 0 24px;line-height:1.6">
+       Souhaitez-vous que nous les conservions&nbsp;?
+     </p>
+     <p style="margin:0 0 24px">
+       <a href="${echapper(lien)}"
+          style="display:inline-block;background:#0f766e;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600">
+         Repondre
+       </a>
+     </p>
+     <p style="margin:0 0 8px;font-size:13px;color:#57534e;line-height:1.6">
+       Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur&nbsp;:<br>
+       <span style="word-break:break-all;color:#0f766e">${echapper(lien)}</span>
+     </p>
+     <p style="margin:24px 0 0;font-size:13px;color:#57534e;line-height:1.6">
+       Sans reponse de votre part avant le ${echapper(effacementLe)}, ces pieces seront
+       effacees. Vous pourrez les redeposer a tout moment depuis votre profil&nbsp;; nous
+       ne gardons rien d'autre de ces fichiers.
+     </p>`,
+  );
+
+  return { destinataire, sujet: `Releve — ${titre}`, texte, html };
+}
+
+/**
+ * Message du formulaire de contact, relaye a l'agence.
+ *
+ * Deux precautions, parce que tout ici est saisi par un inconnu. Le corps est
+ * echappe avant d'entrer dans le HTML — un nom contenant du balisage
+ * s'afficherait sinon comme du balisage dans la boite de l'agence. Et
+ * l'adresse saisie ne devient jamais l'expediteur : elle part en `replyTo`,
+ * pose par l'appelant. Usurper l'expediteur ferait rejeter le message par
+ * n'importe quel relais qui verifie SPF, et ouvrirait le site a l'envoi de
+ * courrier au nom de n'importe qui.
+ */
+export function courrielContact(
+  destinataire: string,
+  demande: { prenom: string; nom: string; email: string; sujet: string; message: string },
+): Courriel {
+  const identite = `${demande.prenom} ${demande.nom}`.trim();
+  const titre = `Message du site : ${demande.sujet}`;
+
+  const texte = [
+    `De     ${identite}`,
+    `Adresse ${demande.email}`,
+    `Sujet  ${demande.sujet}`,
+    '',
+    demande.message,
+    '',
+    'Repondre a ce courriel repond directement a la personne.',
+    '',
+    PIED,
+  ].join('\n');
+
+  const lignes = demande.message
+    .split('\n')
+    .map((ligne) => echapper(ligne))
+    .join('<br>');
+
+  const html = enveloppe(
+    titre,
+    `<table style="margin:0 0 20px;font-size:14px;line-height:1.6;border-collapse:collapse">
+       <tr>
+         <td style="padding:2px 16px 2px 0;color:#78716c">De</td>
+         <td style="padding:2px 0;font-weight:600">${echapper(identite)}</td>
+       </tr>
+       <tr>
+         <td style="padding:2px 16px 2px 0;color:#78716c">Adresse</td>
+         <td style="padding:2px 0"><a href="mailto:${echapper(demande.email)}">${echapper(demande.email)}</a></td>
+       </tr>
+       <tr>
+         <td style="padding:2px 16px 2px 0;color:#78716c">Sujet</td>
+         <td style="padding:2px 0">${echapper(demande.sujet)}</td>
+       </tr>
+     </table>
+     <div style="padding:16px 18px;background:#f5f5f4;border-radius:10px;line-height:1.65">${lignes}</div>
+     <p style="margin:20px 0 0;font-size:13px;color:#57534e;line-height:1.6">
+       Repondre a ce courriel repond directement a la personne.
+     </p>`,
+  );
+
+  return { destinataire, sujet: `Releve — ${titre}`, texte, html, repondreA: demande.email };
+}
+
+/**
+ * Le dossier vient d'etre valide par l'agence.
+ *
+ * Le moment compte : jusque-la, la personne voyait des missions sans pouvoir y
+ * postuler, et l'ecran le lui disait sans qu'elle sache quand cela changerait.
+ * Ce courriel est la reponse a cette attente, et il annonce la suite — a partir
+ * de maintenant, les missions qui lui correspondent lui sont signalees.
+ */
+export function courrielDossierValide(
+  destinataire: string,
+  prenom: string | null,
+  lien: string,
+): Courriel {
+  const bonjour = prenom ? `Bonjour ${prenom},` : 'Bonjour,';
+  const titre = 'Votre dossier est validé';
+
+  const texte = [
+    bonjour,
+    '',
+    "L'agence a verifie votre dossier. Vous pouvez desormais postuler aux missions",
+    'qui correspondent a vos diplomes, a votre secteur et a vos disponibilites.',
+    '',
+    lien,
+    '',
+    'Nous vous signalerons par courriel les nouvelles missions qui vous correspondent.',
+    'Ce reglage se coupe a tout moment depuis « Mon compte ».',
+    '',
+    PIED,
+  ].join('\n');
+
+  const html = enveloppe(
+    titre,
+    `<p style="margin:0 0 16px;line-height:1.6">${echapper(bonjour)}</p>
+     <p style="margin:0 0 24px;line-height:1.6">
+       L'agence a verifie votre dossier. Vous pouvez desormais postuler aux missions qui
+       correspondent a vos diplomes, a votre secteur et a vos disponibilites.
+     </p>
+     <p style="margin:0 0 24px">
+       <a href="${echapper(lien)}"
+          style="display:inline-block;background:#0f766e;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600">
+         Voir les missions
+       </a>
+     </p>
+     <p style="margin:24px 0 0;font-size:13px;color:#57534e;line-height:1.6">
+       Nous vous signalerons par courriel les nouvelles missions qui vous correspondent.
+       Ce reglage se coupe a tout moment depuis «&nbsp;Mon compte&nbsp;».
+     </p>`,
+  );
+
+  return { destinataire, sujet: `Releve — ${titre}`, texte, html };
+}
+
+/**
+ * Les missions publiees depuis le dernier envoi qui correspondent au profil.
+ *
+ * Le courriel annonce, il ne decide pas : aucune candidature n'est envoyee
+ * depuis la boite de reception. Chaque ligne mene a la fiche de la mission,
+ * ou la personne lit les conditions completes avant de postuler.
+ */
+export function courrielMissionsCorrespondantes(
+  destinataire: string,
+  prenom: string | null,
+  missions: MissionAnnoncee[],
+  lienListe: string,
+  lienMission: (id: string) => string,
+): Courriel {
+  const bonjour = prenom ? `Bonjour ${prenom},` : 'Bonjour,';
+  const pluriel = missions.length > 1;
+  const titre = pluriel
+    ? `${missions.length} missions correspondent a votre profil`
+    : 'Une mission correspond a votre profil';
+
+  const ligneTexte = (mission: MissionAnnoncee): string =>
+    [
+      `  ${mission.client} — ${mission.lieu}`,
+      `  ${jourLisible(mission.dateDebut)}, ${mission.heureDebut}-${mission.heureFin}` +
+        (mission.tauxHoraire === null ? '' : ` — ${montantLisible(mission.tauxHoraire)} brut / heure`),
+      `  ${lienMission(mission.id)}`,
+    ].join('\n');
+
+  const texte = [
+    bonjour,
+    '',
+    pluriel
+      ? `${missions.length} missions publiees depuis notre dernier message correspondent a votre profil :`
+      : 'Une mission publiee depuis notre dernier message correspond a votre profil :',
+    '',
+    missions.map(ligneTexte).join('\n\n'),
+    '',
+    'Toutes vos missions : ' + lienListe,
+    '',
+    'Pour ne plus recevoir ces messages, decochez « Notifications par e-mail » dans « Mon compte ».',
+    '',
+    PIED,
+  ].join('\n');
+
+  const cartes = missions
+    .map(
+      (mission) => `
+      <tr>
+        <td style="padding:14px 16px;border:1px solid #e7e5e4;border-radius:10px">
+          <div style="font-size:15px;font-weight:600">${echapper(mission.client)}</div>
+          <div style="font-size:13px;color:#57534e;margin-top:2px">${echapper(mission.lieu)}</div>
+          <div style="font-size:13px;color:#57534e;margin-top:8px">
+            ${echapper(jourLisible(mission.dateDebut))},
+            ${echapper(`${mission.heureDebut}-${mission.heureFin}`)}${
+              mission.tauxHoraire === null
+                ? ''
+                : ` &middot; <strong>${echapper(montantLisible(mission.tauxHoraire))} brut / heure</strong>`
+            }
+          </div>
+          <div style="margin-top:10px">
+            <a href="${echapper(lienMission(mission.id))}" style="font-size:13px;font-weight:600;color:#0f766e">
+              Voir la mission
+            </a>
+          </div>
+        </td>
+      </tr>
+      <tr><td style="height:10px"></td></tr>`,
+    )
+    .join('');
+
+  const html = enveloppe(
+    titre,
+    `<p style="margin:0 0 16px;line-height:1.6">${echapper(bonjour)}</p>
+     <p style="margin:0 0 20px;line-height:1.6">
+       ${
+         pluriel
+           ? `${missions.length} missions publiees depuis notre dernier message correspondent a votre profil&nbsp;:`
+           : 'Une mission publiee depuis notre dernier message correspond a votre profil&nbsp;:'
+       }
+     </p>
+     <table style="width:100%;border-collapse:collapse">${cartes}</table>
+     <p style="margin:16px 0 0">
+       <a href="${echapper(lienListe)}" style="font-size:14px;font-weight:600;color:#0f766e">
+         Toutes vos missions
+       </a>
+     </p>
+     <p style="margin:24px 0 0;font-size:13px;color:#57534e;line-height:1.6">
+       Pour ne plus recevoir ces messages, decochez «&nbsp;Notifications par e-mail&nbsp;» dans
+       «&nbsp;Mon compte&nbsp;».
+     </p>`,
+  );
+
+  return { destinataire, sujet: `Releve — ${titre}`, texte, html };
+}
+
+/** « lundi 28 septembre », sans l'annee quand elle est evidente. */
+function jourLisible(dateIso: string): string {
+  return new Date(dateIso).toLocaleDateString('fr-FR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  });
+}
+
+function montantLisible(taux: number): string {
+  return `${taux.toFixed(2).replace('.', ',')} €`;
 }

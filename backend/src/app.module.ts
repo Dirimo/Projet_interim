@@ -1,11 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { MailModule } from './mail/mail.module';
 import { HealthModule } from './health/health.module';
 import { CandidatsModule } from './candidats/candidats.module';
+import { ContactModule } from './contact/contact.module';
 import { DocumentsModule } from './documents/documents.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { ClientsModule } from './clients/clients.module';
 import { QualificationsModule } from './qualifications/qualifications.module';
 import { UtilisateursModule } from './utilisateurs/utilisateurs.module';
@@ -18,6 +21,9 @@ import { PropositionsModule } from './propositions/propositions.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    // Les taches planifiees ne partent qu'avec IMPORT_OFFRES_AUTOMATIQUE=true :
+    // enregistrer le module ici ne declenche rien par lui-meme.
+    ScheduleModule.forRoot(),
     PrismaModule,
     MailModule,
     AuthModule,
@@ -29,7 +35,9 @@ import { PropositionsModule } from './propositions/propositions.module';
     DonneesPubliquesModule,
     MatchingModule,
     MissionsModule,
+    ContactModule,
     DocumentsModule,
+    NotificationsModule,
     MonProfilModule,
     PropositionsModule,
   ],

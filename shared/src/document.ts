@@ -68,6 +68,12 @@ export interface DocumentResume {
   verifieLe: string | null;
   /** Péremption, pour les pièces qui en ont une. */
   expireLe: string | null;
+  /**
+   * Date jusqu'à laquelle la plateforme conserve la pièce. Affichée sur le
+   * dossier : quelqu'un qui confie sa carte d'identité a le droit de savoir
+   * jusqu'à quand elle reste là, sans avoir à lire la politique.
+   */
+  conservationJusquAu: string;
 }
 
 /**

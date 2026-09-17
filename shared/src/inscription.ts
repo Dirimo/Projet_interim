@@ -38,6 +38,19 @@ export type CompteInscription = z.infer<typeof compteInscriptionSchema>;
 export const inscriptionInterimaireSchema = z.object({
   interimaire: candidatCreateSchema.omit({ email: true }),
   compte: compteInscriptionSchema,
+
+  /**
+   * Acceptation des conditions generales.
+   *
+   * Exigee par le schema et non par le seul gabarit : une case cochee dans un
+   * navigateur ne prouve rien tant que le serveur ne la reclame pas, et un
+   * client qui ne l'enverrait pas obtiendrait sinon un compte sans
+   * consentement. La date et la version acceptee sont enregistrees a la
+   * creation du compte.
+   */
+  conditionsAcceptees: z
+    .boolean()
+    .refine((accepte) => accepte, 'Vous devez accepter les conditions générales'),
 });
 
 export type InscriptionInterimaire = z.infer<typeof inscriptionInterimaireSchema>;

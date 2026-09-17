@@ -52,6 +52,9 @@ const compteurs = computed(() => [
     valeur: String(data.value?.confirmees.total ?? 0),
     libelle: 'Missions confirmées',
     teinte: 'vert',
+    // Le canvas ne met que quatre entrees dans la barre laterale : c'est par ce
+    // compteur qu'on atteint desormais le suivi de la mission confirmee.
+    vers: '/suivi',
   },
   {
     cle: 'candidatures',
@@ -72,6 +75,13 @@ const compteurs = computed(() => [
     teinte: 'neutre',
   },
 ]);
+
+/**
+ * `:is` ne resout pas un nom de composant passe en chaine : le gabarit sortait
+ * une balise `<NuxtLink>` inconnue du navigateur, donc un compteur qui ne
+ * cliquait pas. La resolution explicite rend le vrai composant.
+ */
+const Lien = resolveComponent('NuxtLink');
 
 const missionsProches = computed(() =>
   (data.value?.missions.donnees ?? []).map((mission) => ({
@@ -113,7 +123,9 @@ const missionsProches = computed(() =>
           </p>
 
           <ul v-if="!complet && data.completude.manques.length" class="manques">
-            <li v-for="manque in data.completude.manques" :key="manque.cle">{{ manque.libelle }}</li>
+            <li v-for="manque in data.completude.manques" :key="manque.cle">
+              {{ manque.libelle }}
+            </li>
           </ul>
 
           <NuxtLink class="action" to="/mon-profil">
@@ -122,10 +134,17 @@ const missionsProches = computed(() =>
         </div>
 
         <div class="compteurs">
-          <div v-for="compteur in compteurs" :key="compteur.cle" class="tuile" :class="compteur.teinte">
+          <component
+            :is="compteur.vers ? Lien : 'div'"
+            v-for="compteur in compteurs"
+            :key="compteur.cle"
+            :to="compteur.vers"
+            class="tuile"
+            :class="[compteur.teinte, { cliquable: !!compteur.vers }]"
+          >
             <p class="valeur">{{ compteur.valeur }}</p>
             <p class="libelle">{{ compteur.libelle }}</p>
-          </div>
+          </component>
         </div>
       </div>
 
@@ -160,6 +179,19 @@ const missionsProches = computed(() =>
         Aucune mission publiée pour le moment. Les nouvelles offres apparaissent ici dès leur
         publication.
       </p>
+
+      <!--
+        Renvoi, et non second catalogue : les missions Relève priment sur cette
+        page, et le marché a la sienne. Deux listes côte à côte inviteraient à
+        les comparer, alors qu'on ne postule qu'à l'une des deux.
+      -->
+      <NuxtLink to="/annonces" class="vers-annonces">
+        <span class="intitule">Voir les annonces partenaire</span>
+        <span class="precision">
+          Ce que cherche le secteur autour de vous, diffusé par France Travail. Relève n'est pas
+          l'employeur de ces postes.
+        </span>
+      </NuxtLink>
     </template>
   </section>
 </template>
@@ -278,9 +310,21 @@ h1 {
 }
 
 .tuile {
+  display: block;
   padding: 22px;
+  color: inherit;
+  text-decoration: none;
   border: 1px solid var(--line);
   border-radius: 18px;
+}
+
+.tuile.cliquable:hover {
+  border-color: var(--dom);
+}
+
+.tuile.cliquable:focus-visible {
+  outline: 2px solid var(--dom);
+  outline-offset: 2px;
 }
 
 .tuile.vert {
@@ -338,7 +382,9 @@ h1 {
 
 .missions {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  /* `min()` plutot que 300px sec : une piste de 300px imposee deborde de
+   * l'ecran sur un telephone etroit, et c'est la carte entiere qui sort. */
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
   gap: 16px;
 }
 
@@ -405,11 +451,15 @@ h1 {
   white-space: nowrap;
 }
 
+/* Les deux enfants sont en `nowrap` : sans retour a la ligne, aucun des deux
+ * ne peut retrecir et la remuneration depasse le bord arrondi de la carte des
+ * que la grille passe a trois colonnes. Le taux garde sa place a droite sur
+ * une ligne comme sur deux grace a la marge automatique. */
 .bas-mission {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px 10px;
   align-items: center;
-  justify-content: space-between;
 }
 
 .creneau {
@@ -423,6 +473,7 @@ h1 {
 }
 
 .taux {
+  margin-left: auto;
   font-size: 16px;
   font-weight: 700;
   color: var(--dom);
@@ -444,5 +495,39 @@ h1 {
   .encart {
     padding: 24px;
   }
+}
+/*
+ * Bordure discontinue, comme les cartes d'annonces : elle signale qu'on quitte
+ * le périmètre des missions Relève avant même qu'on ait lu l'intitulé.
+ */
+.vers-annonces {
+  display: block;
+  margin-top: 28px;
+  padding: 18px 20px;
+  color: inherit;
+  text-decoration: none;
+  background: var(--surface);
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+}
+
+.vers-annonces:hover,
+.vers-annonces:focus-visible {
+  border-style: solid;
+}
+
+.vers-annonces .intitule {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.vers-annonces .precision {
+  display: block;
+  max-width: 68ch;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--muted);
 }
 </style>

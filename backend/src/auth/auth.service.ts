@@ -5,6 +5,7 @@ import { CODE_EMAIL_NON_VERIFIE } from '@releve/shared';
 import type {
   Connexion,
   MotDePasseChange,
+  PreferencesNotification,
   ReponseConnexion,
   UtilisateurSession,
 } from '@releve/shared';
@@ -264,5 +265,34 @@ export class AuthService {
       jetonRafraichissement: jeton.valeur,
       rafraichissementExpireDans: jeton.expireDans,
     };
+  }
+
+  /** Reglage des courriels de service, tel qu'il est enregistre. */
+  async lireNotifications(session: UtilisateurSession): Promise<PreferencesNotification> {
+    const compte = await this.prisma.utilisateur.findUniqueOrThrow({
+      where: { id: session.id },
+      select: { notificationsEmail: true },
+    });
+
+    return { notificationsEmail: compte.notificationsEmail };
+  }
+
+  /**
+   * Active ou coupe les courriels de service.
+   *
+   * Rend l'etat enregistre plutot que rien : l'ecran affiche un interrupteur,
+   * et il doit refleter ce que la base dit, pas ce que le clic supposait.
+   */
+  async changerNotifications(
+    session: UtilisateurSession,
+    donnees: PreferencesNotification,
+  ): Promise<PreferencesNotification> {
+    const compte = await this.prisma.utilisateur.update({
+      where: { id: session.id },
+      data: { notificationsEmail: donnees.notificationsEmail },
+      select: { notificationsEmail: true },
+    });
+
+    return { notificationsEmail: compte.notificationsEmail };
   }
 }

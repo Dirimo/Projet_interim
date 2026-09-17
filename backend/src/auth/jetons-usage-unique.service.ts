@@ -75,6 +75,45 @@ export class JetonsUsageUniqueService {
    * c'est la base qui tranche et non l'ordre de lecture.
    */
   async consommer(valeur: string, usage: UsageJeton): Promise<JetonResolu | null> {
+    const jeton = await this.retrouver(valeur, usage);
+
+    if (!jeton) {
+      return null;
+    }
+
+    const consommation = await this.prisma.jetonUsageUnique.updateMany({
+      where: { id: jeton.id, consommeLe: null },
+      data: { consommeLe: new Date() },
+    });
+
+    if (consommation.count === 0) {
+      return null;
+    }
+
+    return { utilisateurId: jeton.utilisateurId, email: jeton.email };
+  }
+
+  /**
+   * Resout un jeton sans le consommer.
+   *
+   * Necessaire quand la page doit montrer quelque chose avant que la personne
+   * tranche — le dossier qu'elle s'apprete a garder ou a effacer. Consommer des
+   * l'affichage brulerait la decision de quelqu'un dont le client de
+   * messagerie precharge les liens, et qui n'a encore rien lu.
+   *
+   * Memes refus que `consommer`, et le meme silence sur leur cause.
+   */
+  async resoudre(valeur: string, usage: UsageJeton): Promise<JetonResolu | null> {
+    const jeton = await this.retrouver(valeur, usage);
+
+    return jeton ? { utilisateurId: jeton.utilisateurId, email: jeton.email } : null;
+  }
+
+  /** Les controles communs a la resolution et a la consommation. */
+  private async retrouver(
+    valeur: string,
+    usage: UsageJeton,
+  ): Promise<{ id: string; utilisateurId: string; email: string } | null> {
     const jeton = await this.prisma.jetonUsageUnique.findUnique({
       where: { empreinte: this.empreinte(valeur) },
       include: { utilisateur: { select: { email: true, actif: true } } },
@@ -93,15 +132,6 @@ export class JetonsUsageUniqueService {
       return null;
     }
 
-    const consommation = await this.prisma.jetonUsageUnique.updateMany({
-      where: { id: jeton.id, consommeLe: null },
-      data: { consommeLe: new Date() },
-    });
-
-    if (consommation.count === 0) {
-      return null;
-    }
-
-    return { utilisateurId: jeton.utilisateurId, email: jeton.email };
+    return { id: jeton.id, utilisateurId: jeton.utilisateurId, email: jeton.email };
   }
 }

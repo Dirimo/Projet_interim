@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { avec, confirmerAdresse, connecter, type Session } from './aide';
+import { VERSION_CONDITIONS } from '@releve/shared';
 import { creerApp, prisma, reinitialiser, type Jeu } from './fixtures';
 
 const MOT_DE_PASSE_INSCRIPTION = 'MotDePasseInscrit2026';
@@ -21,6 +22,7 @@ function interimaire(surcharge: Record<string, unknown> = {}) {
       ...surcharge,
     },
     compte: { email: 'julie.moreau@test.example', motDePasse: MOT_DE_PASSE_INSCRIPTION },
+    conditionsAcceptees: true,
   };
 }
 
@@ -63,6 +65,57 @@ describe('inscription des deux profils', () => {
         compte: { email: 'direction@glycines.example', motDePasse: MOT_DE_PASSE_INSCRIPTION },
       })
       .expect(404);
+  });
+
+  /**
+   * Le consentement aux conditions generales.
+   *
+   * Exige par le schema partage, donc par l'API et pas seulement par la case du
+   * formulaire : un client qui ne l'enverrait pas obtiendrait sinon un compte
+   * sans consentement, et rien dans la base ne dirait qu'il en manque un.
+   */
+  describe('conditions generales', () => {
+    it('refuse une inscription sans acceptation', async () => {
+      const { conditionsAcceptees: _ignore, ...sansCase } = interimaire();
+
+      await request(app.getHttpServer())
+        .post('/api/auth/inscription/interimaire')
+        .send({ ...sansCase, compte: { ...sansCase.compte, email: 'sans.case@test.example' } })
+        .expect(400);
+
+      expect(await prisma.utilisateur.count({ where: { email: 'sans.case@test.example' } })).toBe(
+        0,
+      );
+    });
+
+    it('refuse une case decochee envoyee telle quelle', async () => {
+      await request(app.getHttpServer())
+        .post('/api/auth/inscription/interimaire')
+        .send({
+          ...interimaire(),
+          compte: { email: 'refus@test.example', motDePasse: MOT_DE_PASSE_INSCRIPTION },
+          conditionsAcceptees: false,
+        })
+        .expect(400);
+    });
+
+    it('enregistre la date et la version acceptee', async () => {
+      await request(app.getHttpServer())
+        .post('/api/auth/inscription/interimaire')
+        .send({
+          ...interimaire(),
+          compte: { email: 'consentie@test.example', motDePasse: MOT_DE_PASSE_INSCRIPTION },
+        })
+        .expect(201);
+
+      const compte = await prisma.utilisateur.findUniqueOrThrow({
+        where: { email: 'consentie@test.example' },
+        select: { conditionsAccepteesLe: true, conditionsVersion: true },
+      });
+
+      expect(compte.conditionsAccepteesLe).toBeInstanceOf(Date);
+      expect(compte.conditionsVersion).toBe(VERSION_CONDITIONS);
+    });
   });
 
   describe('interimaire', () => {

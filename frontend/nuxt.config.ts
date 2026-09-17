@@ -16,11 +16,22 @@ export default defineNuxtConfig({
   },
   // `@releve/shared` est compile en CommonJS et lie par le workspace : Vite le
   // traite alors comme du source et rate ses exports nommes, avec une erreur du
-  // type « doesn't provide an export named ». Le pre-bundler explicitement
-  // supprime le piege - plus besoin de vider node_modules/.vite a chaque ajout
-  // dans le paquet partage.
+  // type « doesn't provide an export named ». D'ou le pre-bundling explicite.
+  //
+  // `force` regle le second piege, plus vicieux que le premier. Vite calcule
+  // l'empreinte de son cache de dependances sur le fichier de verrouillage et
+  // la configuration, pas sur le contenu d'un paquet lie : un fichier ajoute a
+  // `@releve/shared` n'invalide donc rien. Le serveur continue de servir au
+  // navigateur un pre-bundle d'avant, ou le nouveau symbole n'existe pas — la
+  // page se rend cote serveur, puis son hydratation echoue sur
+  // « X is undefined », et l'ecran reste la, inerte, sans erreur visible.
+  // Un redemarrage n'y change rien : le cache est sur disque et lui survit.
+  //
+  // Le cout est de reconstruire les dependances a chaque demarrage du serveur
+  // de developpement, quelques centaines de millisecondes. Sans effet sur le
+  // `build` de production, qui repart toujours de zero.
   vite: {
-    optimizeDeps: { include: ['@releve/shared'] },
+    optimizeDeps: { include: ['@releve/shared'], force: true },
   },
   typescript: {
     strict: true,

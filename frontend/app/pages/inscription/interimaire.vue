@@ -18,6 +18,7 @@ const form = reactive({
   email: '',
   motDePasse: '',
   confirmation: '',
+  conditionsAcceptees: false,
 });
 
 const erreurs = ref<Record<string, string>>({});
@@ -45,6 +46,7 @@ function corps() {
       vehicule: form.vehicule,
     },
     compte: { email: form.email, motDePasse: form.motDePasse },
+    conditionsAcceptees: form.conditionsAcceptees,
   };
 }
 
@@ -264,6 +266,23 @@ async function soumettre(): Promise<void> {
         </div>
       </fieldset>
 
+      <!-- La case est hors des cartes de saisie : ce qu'on accepte n'est pas
+           une donnee de plus a renseigner, et la noyer dans la grille du compte
+           reviendrait a la faire cocher sans la lire. -->
+      <label class="consentement" :class="{ manquant: !!erreurs.conditionsAcceptees }">
+        <input id="conditions" v-model="form.conditionsAcceptees" type="checkbox" />
+        <span>
+          J'accepte les
+          <NuxtLink to="/conditions-utilisation" target="_blank">conditions générales</NuxtLink>
+          et j'ai pris connaissance de la
+          <NuxtLink to="/politique-confidentialite" target="_blank">
+            politique de confidentialité
+          </NuxtLink>
+          .
+          <em v-if="erreurs.conditionsAcceptees">{{ erreurs.conditionsAcceptees }}</em>
+        </span>
+      </label>
+
       <p v-if="erreurGenerale" class="erreur">{{ erreurGenerale }}</p>
 
       <div class="pied-formulaire">
@@ -467,6 +486,42 @@ em {
   font-style: normal;
   font-weight: 500;
   color: var(--eta);
+}
+
+.consentement {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 18px 20px;
+  font-size: 14.5px;
+  line-height: 1.6;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+
+/* Le filet passe au rouge quand la case manque : sans cela, le message se
+   perdrait sous un formulaire long, et on chercherait l'erreur en haut. */
+.consentement.manquant {
+  background: var(--eta-soft);
+  border-color: var(--eta-line);
+}
+
+.consentement input {
+  width: auto;
+  padding: 0;
+  margin-top: 3px;
+  accent-color: var(--dom);
+}
+
+.consentement a {
+  font-weight: 600;
+  color: var(--dom);
+}
+
+.consentement em {
+  display: block;
+  margin-top: 4px;
 }
 
 .erreur {

@@ -13,9 +13,12 @@ useHead({
     <h1 class="vitrine-titre">Ce que vous pouvez attendre du service</h1>
     <p class="vitrine-chapeau">
       Ces conditions décrivent le fonctionnement réel de la plateforme. Les clauses qui dépendent de
-      l'agence — identité de l'éditeur, droit applicable, médiation — restent à compléter, et le
-      texte doit être relu par un professionnel du droit avant d'engager qui que ce soit.
+      l'agence — identité de l'éditeur, droit applicable, médiation — reposent sur un jeu de
+      démonstration, et le texte doit être relu par un professionnel du droit avant d'engager qui
+      que ce soit.
     </p>
+
+    <AppBandeauDemonstration />
 
     <section>
       <h2>1. Objet</h2>
@@ -118,12 +121,12 @@ useHead({
     <section>
       <h2>8. Ce qui reste à compléter</h2>
       <p class="reste">
-        <strong>Avant toute mise en ligne :</strong> l'identité de l'éditeur (voir les
-        <NuxtLink to="/mentions-legales">mentions légales</NuxtLink>), le droit applicable et la
-        juridiction compétente, les modalités de modification des présentes conditions et
-        d'information des utilisateurs, le dispositif de médiation de la consommation, et les
-        clauses de propriété intellectuelle. Ce document est un brouillon de structure : il n'a pas
-        été relu par un professionnel du droit.
+        <strong>Avant toute mise en ligne :</strong> l'identité réelle de l'éditeur, qui remplacera
+        le jeu de démonstration des <NuxtLink to="/mentions-legales">mentions légales</NuxtLink> ;
+        le droit applicable et la juridiction compétente ; les modalités de modification des
+        présentes conditions et d'information des utilisateurs ; le dispositif de médiation de la
+        consommation ; et les clauses de propriété intellectuelle. Ce document est un brouillon de
+        structure : il n'a pas été relu par un professionnel du droit.
       </p>
     </section>
 

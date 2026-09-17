@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import {
+  DELAI_REPONSE_JOURS,
+  DUREE_CONSERVATION_MOIS,
+  REINITIALISATION_EXPIRE_HEURES,
+  VERIFICATION_EXPIRE_HEURES,
+} from '@releve/shared';
 import { ADRESSE_CONTACT, AUTORITE_CONTROLE, DERNIERE_REVISION, DONNEES } from '~/data/legal';
 
 useHead({
@@ -14,8 +20,10 @@ useHead({
     <p class="vitrine-chapeau">
       Ce texte décrit les traitements que la plateforme effectue réellement, relevés dans le code.
       Les rubriques qui dépendent de l'organisation de l'agence — responsable de traitement, durées
-      de conservation, sous-traitants — restent à compléter par elle.
+      de conservation, sous-traitants — reposent sur un jeu de démonstration.
     </p>
+
+    <AppBandeauDemonstration />
 
     <section>
       <h2>1. Ce que nous collectons</h2>
@@ -101,8 +109,15 @@ useHead({
         </li>
       </ul>
       <p>
-        Les offres publiques affichées dans le baromètre de tension viennent de France Travail :
-        c'est un flux entrant, aucune de vos données ne part vers ce service.
+        Les offres publiques affichées dans la rubrique « Offres du marché » et dans le baromètre de
+        tension viennent de France Travail : c'est un flux entrant, aucune de vos données ne part
+        vers ce service. Consulter ces offres sur Relève ne nous signale pas à France Travail.
+      </p>
+      <p>
+        En revanche, si vous cliquez sur « Postuler sur France Travail », vous quittez ce site et
+        poursuivez sur francetravail.fr, où s'appliquent leurs propres conditions et leur propre
+        politique de confidentialité. Votre candidature ne passe pas par Relève et nous ne la
+        recevons pas.
       </p>
     </section>
 
@@ -113,17 +128,40 @@ useHead({
         <li>Jeton d'accès à votre session : 15 minutes.</li>
         <li>Session prolongeable : 12 heures, révocable à tout moment par la déconnexion.</li>
         <li>
-          Liens de confirmation d'adresse et de réinitialisation : 48 heures, utilisables une seule
-          fois.
+          Lien de confirmation d'adresse : {{ VERIFICATION_EXPIRE_HEURES }} heures, utilisable une
+          seule fois.
+        </li>
+        <li>
+          Lien de réinitialisation du mot de passe :
+          {{ REINITIALISATION_EXPIRE_HEURES === 1 ? 'une heure' : `${REINITIALISATION_EXPIRE_HEURES} heures` }},
+          utilisable une seule fois. Plus court que le précédent&nbsp;: il ouvre la porte d'un compte
+          existant, l'autre confirme seulement une adresse.
         </li>
         <li>
           Préférences d'affichage (contraste renforcé, réduction des animations) : conservées dans
           votre navigateur, sur cet appareil, jamais transmises.
         </li>
       </ul>
+
+      <h3>Vos pièces justificatives</h3>
       <p>
-        La durée de conservation du dossier candidat lui-même relève de l'agence et figure
-        ci-dessous.
+        Chaque pièce que vous déposez — numéro de sécurité sociale, diplôme, CV, pièce d'identité,
+        RIB — est conservée <strong>{{ DUREE_CONSERVATION_MOIS }} mois</strong> à compter de son
+        dépôt. Déposer une nouvelle version fait repartir ce délai.
+      </p>
+      <p>
+        À cette échéance, nous vous écrivons à l'adresse de votre compte pour vous demander si vous
+        souhaitez que nous les gardions. Un clic suffit à les conserver
+        {{ DUREE_CONSERVATION_MOIS }} mois de plus, ou à les effacer immédiatement.
+        <strong>
+          Sans réponse de votre part dans les {{ DELAI_REPONSE_JOURS }} jours, elles sont effacées
+        </strong>
+        : votre silence ne vaut pas accord. Votre compte et votre dossier, eux, restent ouverts, et
+        vous pouvez redéposer vos pièces à tout moment.
+      </p>
+      <p>
+        La durée de conservation du dossier candidat lui-même — vos coordonnées, votre parcours, vos
+        disponibilités — relève de l'agence et figure ci-dessous.
       </p>
     </section>
 
@@ -133,8 +171,13 @@ useHead({
         Vous disposez d'un droit d'accès, de rectification, d'effacement, de limitation et
         d'opposition, ainsi que d'un droit à la portabilité de vos données. Une partie s'exerce
         directement depuis votre espace : la page « Mon profil » vous permet de corriger vos
-        coordonnées, votre secteur, vos disponibilités, et de retirer un diplôme ou un poste tant
-        qu'il n'a pas été vérifié.
+        coordonnées, votre secteur, vos disponibilités, de retirer un diplôme ou un poste tant qu'il
+        n'a pas été vérifié, et de <strong>supprimer vous-même chacune de vos pièces</strong>.
+      </p>
+      <p>
+        <strong>La suppression du compte, elle, n'est pas automatisée.</strong> Elle se demande par
+        courriel et se traite à la main. Nous le disons plutôt que de laisser croire à un bouton qui
+        n'existe pas.
       </p>
       <p>
         Pour tout le reste, écrivez à
@@ -145,13 +188,14 @@ useHead({
     </section>
 
     <section>
-      <h2>6. Ce qui reste à préciser par l'agence</h2>
+      <h2>6. Responsable et destinataires</h2>
       <AppMentions :mentions="DONNEES" />
       <p class="reste">
         <strong>Une base légale doit être attachée à chaque finalité</strong> listée au point 2 —
-        exécution du contrat, obligation légale, intérêt légitime ou consentement selon le cas. Tant
-        que ces rubriques ne sont pas renseignées, ce texte décrit fidèlement le fonctionnement
-        technique mais ne constitue pas une information complète au sens du RGPD.
+        exécution du contrat, obligation légale, intérêt légitime ou consentement selon le cas. Elle
+        manque encore, et le responsable de traitement ci-dessus relève du jeu de démonstration : ce
+        texte décrit fidèlement le fonctionnement technique, il ne constitue pas une information
+        complète au sens du RGPD.
       </p>
     </section>
 

@@ -36,7 +36,33 @@ const PAGES_VITRINE = new Set([
   '/mentions-legales',
   '/conditions-utilisation',
   '/politique-confidentialite',
+  // Pas de la vitrine, mais la meme regle : on y arrive par un lien recu apres
+  // un an sans nouvelles, donc le plus souvent sans session — et renvoyer vers
+  // son tableau de bord quelqu'un qui *est* connecte lui ferait perdre la
+  // decision qu'on lui demande de prendre.
+  '/conservation',
 ]);
+
+/**
+ * Sections vitrine déclarées en préfixe.
+ *
+ * `PAGES_VITRINE` fait des égalités exactes, ce qui ne saurait pas couvrir une
+ * page portant un identifiant. `/offres` n'en a plus aujourd'hui, mais la
+ * rubrique est appelée à s'étoffer d'une fiche par mission, et l'oubli se
+ * remarquerait mal : la page s'afficherait, puis renverrait vers le formulaire
+ * de connexion pour une annonce pourtant publique.
+ *
+ * À ne pas confondre avec `/missions`, qui porte les missions vues depuis
+ * l'espace d'un candidat connecté.
+ */
+const SECTIONS_VITRINE = ['/offres'] as const;
+
+function vitrine(chemin: string): boolean {
+  return (
+    PAGES_VITRINE.has(chemin) ||
+    SECTIONS_VITRINE.some((prefixe) => chemin === prefixe || chemin.startsWith(`${prefixe}/`))
+  );
+}
 
 /**
  * Pages communes aux deux profils externes : leur fiche et leur mot de passe.
@@ -52,7 +78,16 @@ const PAGES_EXTERNES = new Set(['/mon-espace', '/mon-compte']);
  * saurait pas couvrir.
  */
 const SECTIONS_PAR_ROLE: Partial<Record<RoleUtilisateur, readonly string[]>> = {
-  CANDIDAT: ['/tableau-de-bord', '/missions', '/suivi', '/candidature', '/mon-profil'],
+  CANDIDAT: [
+    '/tableau-de-bord',
+    '/missions',
+    '/suivi',
+    '/candidature',
+    '/mon-profil',
+    // Annonces partenaire : le marche collecte sur France Travail. Reserve au
+    // candidat, et l'API le referme une seconde fois sur le dossier valide.
+    '/annonces',
+  ],
   CLIENT: ['/etablissement'],
 };
 
@@ -90,7 +125,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
   // c'est elle qui decide de la coque — un candidat connecte qui ouvre la FAQ
   // reste dans son espace, avec sa barre laterale, plutot que de se voir
   // proposer de se connecter.
-  if (PAGES_VITRINE.has(to.path)) {
+  if (vitrine(to.path)) {
     return;
   }
 

@@ -22,6 +22,7 @@ function inscription(email = ADRESSE) {
       vehicule: false,
     },
     compte: { email, motDePasse: MOT_DE_PASSE },
+    conditionsAcceptees: true,
   };
 }
 

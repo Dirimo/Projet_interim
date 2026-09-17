@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ADRESSE_CONTACT, COORDONNEES, SUJETS_CONTACT } from '~/data/vitrine';
+import { messageContactSchema, SUJETS_CONTACT, type SujetContact } from '@releve/shared';
+import { COORDONNEES } from '~/data/vitrine';
 
 useHead({
   title: 'Contact — Relève',
@@ -12,35 +13,66 @@ useHead({
   ],
 });
 
-const prenom = ref('');
-const nom = ref('');
-const email = ref('');
-const sujet = ref<string>(SUJETS_CONTACT[0]);
-const message = ref('');
+const { requete } = useApi();
+
+const form = reactive({
+  prenom: '',
+  nom: '',
+  email: '',
+  sujet: SUJETS_CONTACT[0] as SujetContact,
+  message: '',
+  // Piege a robots : invisible a l'ecran, jamais rempli par une personne.
+  siteWeb: '',
+});
+
+const erreurs = ref<Record<string, string>>({});
+const erreurGenerale = ref('');
+const envoi = ref(false);
+const envoye = ref(false);
 
 /**
- * Le canvas dessine un formulaire qui s'envoie tout seul. L'API n'a aucune
- * route de contact, et rien ne serait plus trompeur qu'un bouton « Envoyer »
- * qui jette le message.
+ * Le message part vraiment : l'API le relaie a la boite de l'agence.
  *
- * La saisie compose donc un courriel que le logiciel de messagerie de la
- * personne ouvrira, pre-rempli. C'est un lien, pas un appel reseau : il
- * fonctionne sans JavaScript une fois la page rendue, et aucune donnee ne
- * transite par le site.
+ * Il ouvrait jusqu'ici le logiciel de messagerie avec un `mailto:` pre-rempli,
+ * faute de route cote serveur. C'etait honnete tant que rien n'existait, mais
+ * cela demandait a la personne de finir l'envoi elle-meme, et ne faisait rien
+ * du tout chez qui n'a pas de client de messagerie configure — un bouton qui
+ * ne repond pas, sans message d'erreur.
+ *
+ * La saisie est verifiee avec le meme schema que l'API : ce qui passe ici
+ * passe la-bas, et les phrases d'erreur sont ecrites une seule fois.
  */
-const lienMessagerie = computed(() => {
-  const objet = `[Relève] ${sujet.value}`;
+async function soumettre(): Promise<void> {
+  erreurs.value = {};
+  erreurGenerale.value = '';
 
-  // La signature n'est ajoutee que si l'identite est saisie : un formulaire
-  // vide ne doit pas produire un message reduit a un tiret cadratin.
-  const signature = [`${prenom.value} ${nom.value}`.trim(), email.value.trim()].filter(Boolean);
+  const verifie = messageContactSchema.safeParse({ ...form });
 
-  const corps = signature.length
-    ? [message.value, '', '—', ...signature].join('\n')
-    : message.value;
+  if (!verifie.success) {
+    for (const souci of verifie.error.issues) {
+      erreurs.value[String(souci.path.at(-1))] = souci.message;
+    }
 
-  return `mailto:${ADRESSE_CONTACT}?subject=${encodeURIComponent(objet)}&body=${encodeURIComponent(corps)}`;
-});
+    return;
+  }
+
+  envoi.value = true;
+
+  try {
+    await requete('/contact', { method: 'POST', body: verifie.data });
+    envoye.value = true;
+  } catch (cause) {
+    const erreur = cause as { statusCode?: number; data?: { message?: string } };
+
+    erreurGenerale.value =
+      erreur.statusCode === 429
+        ? 'Trop de messages envoyés coup sur coup. Réessayez dans quelques minutes.'
+        : (erreur.data?.message ??
+          "Envoi impossible pour le moment. Réessayez dans un instant, ou écrivez directement à l'agence.");
+  } finally {
+    envoi.value = false;
+  }
+}
 </script>
 
 <template>
@@ -62,34 +94,43 @@ const lienMessagerie = computed(() => {
         </div>
       </div>
 
-      <p class="structure">
-        Vous représentez un service d'aide à domicile ? Votre structure est enregistrée par nos
-        équipes, après vérification de votre déclaration SAP ou de votre autorisation : écrivez-nous
-        à la même adresse.
-      </p>
     </div>
 
-    <form class="formulaire" @submit.prevent>
+    <!-- Après envoi, le formulaire cède la place à l'accusé de réception :
+         le laisser affiché inviterait à renvoyer le même message. -->
+    <div v-if="envoye" class="accuse">
+      <p class="pastille" aria-hidden="true">✓</p>
+      <h2>Message envoyé</h2>
+      <p>
+        L'agence l'a reçu et répondra à <strong>{{ form.email }}</strong> sous 24 heures ouvrées.
+      </p>
+      <button type="button" class="second" @click="envoye = false">Écrire un autre message</button>
+    </div>
+
+    <form v-else class="formulaire" @submit.prevent="soumettre()">
       <div class="paire">
         <label>
           <span>Prénom</span>
-          <input id="prenom" v-model="prenom" type="text" autocomplete="given-name" />
+          <input id="prenom" v-model="form.prenom" type="text" autocomplete="given-name" />
+          <em v-if="erreurs.prenom">{{ erreurs.prenom }}</em>
         </label>
 
         <label>
           <span>Nom</span>
-          <input id="nom" v-model="nom" type="text" autocomplete="family-name" />
+          <input id="nom" v-model="form.nom" type="text" autocomplete="family-name" />
+          <em v-if="erreurs.nom">{{ erreurs.nom }}</em>
         </label>
       </div>
 
       <label>
         <span>Adresse mail</span>
-        <input id="email" v-model="email" type="email" autocomplete="email" />
+        <input id="email" v-model="form.email" type="email" autocomplete="email" />
+        <em v-if="erreurs.email">{{ erreurs.email }}</em>
       </label>
 
       <label>
         <span>Sujet</span>
-        <select id="sujet" v-model="sujet">
+        <select id="sujet" v-model="form.sujet">
           <option v-for="option in SUJETS_CONTACT" :key="option" :value="option">
             {{ option }}
           </option>
@@ -98,14 +139,32 @@ const lienMessagerie = computed(() => {
 
       <label>
         <span>Votre message</span>
-        <textarea id="message" v-model="message" rows="5" placeholder="Décrivez votre demande" />
+        <textarea
+          id="message"
+          v-model="form.message"
+          rows="5"
+          placeholder="Décrivez votre demande"
+        />
+        <em v-if="erreurs.message">{{ erreurs.message }}</em>
       </label>
 
-      <a :href="lienMessagerie" class="envoyer">Préparer mon message</a>
+      <!-- Piège à robots. `aria-hidden` et `tabindex` le retirent du parcours
+           clavier et du lecteur d'écran : il n'existe que pour les programmes
+           qui remplissent tous les champs d'un formulaire. -->
+      <label class="piege" aria-hidden="true">
+        <span>Site web</span>
+        <input id="site-web" v-model="form.siteWeb" type="text" tabindex="-1" autocomplete="off" />
+      </label>
+
+      <p v-if="erreurGenerale" class="erreur" role="alert">{{ erreurGenerale }}</p>
+
+      <button type="submit" class="envoyer" :disabled="envoi">
+        {{ envoi ? 'Envoi...' : 'Envoyer' }}
+      </button>
 
       <p class="note">
-        Le bouton ouvre votre logiciel de messagerie avec le message déjà rédigé, à destination de
-        {{ ADRESSE_CONTACT }}. Rien n'est enregistré sur ce site.
+        Votre message part à l'agence par courriel. Nous n'en gardons aucune copie sur ce site, et
+        votre adresse ne sert qu'à vous répondre.
       </p>
     </form>
   </main>
@@ -164,12 +223,67 @@ const lienMessagerie = computed(() => {
   color: var(--dom);
 }
 
-.structure {
-  max-width: 52ch;
-  margin: 26px 0 0;
-  font-size: 14px;
-  line-height: 1.6;
+/* ---------- Accusé de réception ---------- */
+
+.accuse {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  padding: 32px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+}
+
+.pastille {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--surface);
+  background: var(--dom);
+  border-radius: 50%;
+}
+
+.accuse h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.accuse p {
+  max-width: 44ch;
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.65;
   color: var(--muted);
+}
+
+.second {
+  padding: 12px 20px;
+  margin-top: 8px;
+  font-family: var(--sans);
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--dom);
+  background: var(--surface);
+  border: 1px solid var(--line-forte);
+  border-radius: 11px;
+  cursor: pointer;
+}
+
+.second:hover {
+  border-color: var(--dom);
+}
+
+.second:focus-visible {
+  outline: 2px solid var(--dom);
+  outline-offset: 2px;
 }
 
 /* ---------- Formulaire ---------- */
@@ -224,20 +338,55 @@ textarea:focus-visible {
   outline-offset: 2px;
 }
 
+label em {
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 500;
+  color: var(--eta);
+}
+
+/* Le piège reste dans le flux du document mais hors de l'écran : `display:none`
+   est ce que le moindre robot détecte en premier. */
+.piege {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.erreur {
+  padding: 13px 15px;
+  margin: 0;
+  font-size: 14px;
+  color: var(--eta);
+  background: var(--eta-soft);
+  border: 1px solid var(--eta-line);
+  border-radius: 12px;
+}
+
 .envoyer {
   padding: 15px;
+  font-family: var(--sans);
   font-size: 15.5px;
   font-weight: 600;
   color: var(--surface);
   text-align: center;
   text-decoration: none;
   background: var(--dom);
+  border: 0;
   border-radius: 12px;
+  cursor: pointer;
 }
 
-.envoyer:hover {
+.envoyer:hover:not(:disabled) {
   color: var(--surface);
   background: var(--dom-fonce);
+}
+
+.envoyer:disabled {
+  opacity: 0.6;
+  cursor: progress;
 }
 
 .envoyer:focus-visible {

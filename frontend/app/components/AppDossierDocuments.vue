@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  DUREE_CONSERVATION_MOIS,
   EXTENSIONS_DOCUMENT,
   TAILLE_MAX_DOCUMENT,
   TYPES_MIME_DOCUMENT,
@@ -30,12 +31,16 @@ const { data: dossier, refresh } = await useAsyncData(`dossier:${base}`, () =>
 const enCours = ref<TypeDocument | ''>('');
 const erreur = ref('');
 
-/** Un champ fichier masque par ligne, declenche par le bouton visible. */
-const champs = ref<Record<string, HTMLInputElement | null>>({});
-
+/**
+ * Ouvre le selecteur de fichier de la ligne.
+ *
+ * Le champ est retrouve par son identifiant plutot que par une reference
+ * stockee : ecrire dans un objet reactif au moment ou Vue pose les references
+ * declenche un nouveau rendu, et la page part en boucle une fois hydratee.
+ */
 function ouvrirSelecteur(type: TypeDocument): void {
   erreur.value = '';
-  champs.value[type]?.click();
+  document.querySelector<HTMLInputElement>(`#fichier-${type}`)?.click();
 }
 
 async function deposer(type: TypeDocument, evenement: Event): Promise<void> {
@@ -68,6 +73,9 @@ async function deposer(type: TypeDocument, evenement: Event): Promise<void> {
   try {
     await televerser(`${base}/documents/${type}`, fichier);
     await refresh();
+    // La jauge de la barre laterale et celle du profil lisent la meme cle :
+    // sans ce rafraichissement, elles resteraient sur l'etat d'avant le depot.
+    await refreshNuxtData('mon-profil:completude');
   } catch (cause) {
     const corps = (cause as { data?: { message?: string } }).data;
     erreur.value = corps?.message ?? 'Dépôt impossible pour le moment.';
@@ -86,6 +94,7 @@ async function retirer(ligne: LigneDossier): Promise<void> {
   try {
     await requete<LigneDossier[]>(`${base}/documents/${ligne.document.id}`, { method: 'DELETE' });
     await refresh();
+    await refreshNuxtData('mon-profil:completude');
   } catch (cause) {
     const corps = (cause as { data?: { message?: string } }).data;
     erreur.value = corps?.message ?? 'Retrait impossible pour le moment.';
@@ -113,6 +122,10 @@ const deposees = computed(() => (dossier.value ?? []).filter((ligne) => ligne.do
     <p class="intro">
       PDF, JPEG ou PNG, {{ Math.round(TAILLE_MAX_DOCUMENT / 1024 / 1024) }} Mo au plus par fichier.
       Déposer à nouveau remplace la pièce précédente.
+      <template v-if="!lectureSeule">
+        Chaque pièce est conservée {{ DUREE_CONSERVATION_MOIS }} mois&nbsp;; passé ce délai, nous
+        vous demandons par courriel si vous souhaitez que nous la gardions.
+      </template>
     </p>
 
     <p v-if="erreur" class="erreur" role="alert">{{ erreur }}</p>
@@ -133,6 +146,10 @@ const deposees = computed(() => (dossier.value ?? []).filter((ligne) => ligne.do
             · {{ poids(ligne.document.taille) }} ·
             <span v-if="ligne.document.verifieLe" class="verifie">Vérifiée par l'agence</span>
             <span v-else>En attente de vérification</span>
+            <br />
+            <span class="echeance">
+              Conservée jusqu'au {{ dateComplete(ligne.document.conservationJusquAu) }}
+            </span>
           </p>
 
           <p v-else class="motif">{{ ligne.motif }}</p>
@@ -141,7 +158,6 @@ const deposees = computed(() => (dossier.value ?? []).filter((ligne) => ligne.do
         <div v-if="!lectureSeule" class="actions">
           <input
             :id="`fichier-${ligne.type}`"
-            :ref="(element) => (champs[ligne.type] = element as HTMLInputElement)"
             type="file"
             class="sr-only"
             :accept="EXTENSIONS_DOCUMENT"
@@ -292,6 +308,12 @@ ul {
 .verifie {
   font-weight: 600;
   color: var(--dom);
+}
+
+/* Une ligne de plus, discrète : l'échéance se consulte, elle ne s'annonce pas.
+   Le message qui compte part par courriel, pas par cet écran. */
+.echeance {
+  font-size: 12.5px;
 }
 
 .actions {

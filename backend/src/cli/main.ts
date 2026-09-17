@@ -2,11 +2,19 @@ import 'reflect-metadata';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Command } from 'commander';
-import { typeDocumentSchema, TYPES_DOCUMENT } from '@releve/shared';
+import {
+  DELAI_REPONSE_JOURS,
+  DUREE_CONSERVATION_MOIS,
+  typeDocumentSchema,
+  TYPES_DOCUMENT,
+} from '@releve/shared';
 import { readFile, writeFile } from 'node:fs/promises';
 import { AppModule } from '../app.module';
 import { FranceTravailClient } from '../donnees-publiques/france-travail.client';
+import { GeocodageOffresService } from '../donnees-publiques/geocodage-offres.service';
 import { OffresService, ROMES_SECTEUR } from '../donnees-publiques/offres.service';
+import { ConservationService } from '../documents/conservation.service';
+import { NotificationsMissionsService } from '../notifications/notifications-missions.service';
 import { DocumentsService } from '../documents/documents.service';
 import { GeocodageService } from '../geocodage/geocodage.service';
 
@@ -36,26 +44,36 @@ function afficherRapport(rapport: {
   recues: number;
   ecartees: number;
   doublons: number;
+  sansDepartement: number;
   sansSalaire: number;
   enregistrees: number;
+  expirees: number;
   simulation: boolean;
   offres: { tauxHoraire: number | null }[];
 }): void {
   const exploitables = rapport.offres.length - rapport.sansSalaire;
 
   console.log('');
-  console.log(`Source                    ${rapport.source}`);
-  console.log(`Offres recues             ${rapport.recues}`);
-  console.log(`Ecartees (non situables)  ${rapport.ecartees}`);
-  console.log(`Republications fusionnees ${rapport.doublons}`);
-  console.log(`Retenues                  ${rapport.offres.length}`);
+  console.log(`Source                     ${rapport.source}`);
+  console.log(`Offres recues              ${rapport.recues}`);
+  console.log(`Ecartees (inexploitables)  ${rapport.ecartees}`);
+  console.log(`Retenues                   ${rapport.offres.length}`);
   console.log(`  dont salaire exploitable ${exploitables}`);
   console.log(`  dont sans salaire        ${rapport.sansSalaire}`);
+  console.log(`  dont lieu non situable   ${rapport.sansDepartement}`);
+  // Republiees et non fusionnees : la licence demande de restituer le
+  // catalogue. C'est le barometre qui les dedoublonne, au calcul.
+  console.log(`Republications reperees    ${rapport.doublons}`);
   console.log(
     rapport.simulation
       ? 'Simulation : rien n a ete ecrit en base.'
-      : `Enregistrees en base      ${rapport.enregistrees}`,
+      : `Enregistrees en base       ${rapport.enregistrees}`,
   );
+
+  if (!rapport.simulation) {
+    console.log(`Expirees (retirees source) ${rapport.expirees}`);
+  }
+
   console.log('');
 }
 
@@ -74,7 +92,18 @@ programme
   .option('--jours <n>', 'ne prendre que les offres creees depuis N jours', Number, 30)
   .option('--max <n>', "plafond d'offres a rapatrier", Number, 600)
   .option('--fichier <chemin>', "importer depuis un instantane local au lieu de l'API")
-  .option('--sec', 'tout nettoyer et compter, sans rien ecrire en base', false)
+  .option('--sec', 'tout preparer et compter, sans rien ecrire en base', false)
+  /**
+   * Expirer, c'est retirer du site les offres que le balayage n'a pas revues.
+   * La licence de reutilisation l'impose, mais le faire depuis un import
+   * partiel effacerait le catalogue : l'option reste donc explicite, et le
+   * service refuse de toute facon d'expirer sur un balayage trop court.
+   */
+  .option(
+    '--expirer',
+    'retirer les offres disparues de la source (reserve a un balayage complet)',
+    false,
+  )
   .action(async (options) => {
     const app = await contexte();
     const offres = app.get(OffresService);
@@ -90,6 +119,7 @@ programme
               max: options.max,
             },
             options.sec,
+            options.expirer,
           );
 
       afficherRapport(rapport);
@@ -238,6 +268,140 @@ programme
       console.log(`Concernees          ${rapport.concernees}`);
       console.log(`Supprimees          ${rapport.supprimees}`);
       console.log(options.sec ? 'Simulation : rien n a ete ecrit.' : '');
+      console.log('');
+    } finally {
+      await app.close();
+    }
+  });
+
+/**
+ * Les deux temps de la conservation, en deux commandes distinctes.
+ *
+ * Separees volontairement : la premiere ecrit a des gens, la seconde efface des
+ * fichiers. Les fondre en une seule ferait qu'un ordonnanceur mal regle
+ * declencherait les deux du meme mouvement, et que la relance du matin
+ * effacerait ce qu'elle vient d'annoncer. Cadence attendue : une fois par jour
+ * chacune.
+ */
+programme
+  .command('conservation:relancer')
+  .description(
+    `Ecrit aux candidats dont des pieces atteignent ${DUREE_CONSERVATION_MOIS} mois, pour leur demander s il faut les garder`,
+  )
+  .option('--sec', 'montre qui serait relance, sans rien envoyer ni ecrire', false)
+  .action(async (options) => {
+    const app = await contexte();
+    const conservation = app.get(ConservationService);
+
+    try {
+      const rapport = await conservation.relancer(options.sec === true);
+
+      console.log('');
+      console.log(`Dossiers relances   ${rapport.dossiers}`);
+      console.log(`Pieces concernees   ${rapport.pieces}`);
+      console.log(`Delai de reponse    ${DELAI_REPONSE_JOURS} jours`);
+      console.log(options.sec ? 'Simulation : aucun courriel envoye, rien ecrit.' : '');
+      console.log('');
+    } finally {
+      await app.close();
+    }
+  });
+
+programme
+  .command('conservation:purger')
+  .description(
+    `Efface les pieces restees sans reponse plus de ${DELAI_REPONSE_JOURS} jours apres la relance`,
+  )
+  .option('--sec', 'montre ce qui serait efface, sans rien ecrire', false)
+  .action(async (options) => {
+    const app = await contexte();
+    const conservation = app.get(ConservationService);
+
+    try {
+      const rapport = await conservation.purgerSansReponse(options.sec === true);
+
+      console.log('');
+      console.log(`Dossiers concernes  ${rapport.dossiers}`);
+      console.log(`Pieces effacees     ${rapport.pieces}`);
+      console.log(options.sec ? 'Simulation : rien n a ete efface.' : '');
+      console.log('');
+    } finally {
+      await app.close();
+    }
+  });
+
+/**
+ * Les missions correspondantes, annoncees une fois par jour.
+ *
+ * Pas au moment de la publication : une agence qui depose huit besoins dans
+ * l'apres-midi ferait huit courriels a la meme personne, et c'est ainsi qu'on
+ * se fait classer en indesirable. Un message par jour au plus, avec les
+ * missions publiees depuis le precedent.
+ */
+programme
+  .command('notifier:missions')
+  .description('Annonce a chaque candidat actif les missions publiees qui lui correspondent')
+  .option('--sec', 'montre qui serait averti, sans rien envoyer ni ecrire', false)
+  .action(async (options) => {
+    const app = await contexte();
+    const notifications = app.get(NotificationsMissionsService);
+
+    try {
+      const rapport = await notifications.notifier(options.sec === true);
+
+      console.log('');
+      console.log(`Candidats examines  ${rapport.examines}`);
+      console.log(`Candidats avertis   ${rapport.avertis}`);
+      console.log(`Missions annoncees  ${rapport.missions}`);
+      console.log(options.sec ? 'Simulation : aucun courriel envoye, rien ecrit.' : '');
+      console.log('');
+    } finally {
+      await app.close();
+    }
+  });
+
+/**
+ * Rattrapage geographique des offres collectees.
+ *
+ * France Travail ne geolocalise qu'une annonce sur sept : sur un import reel de
+ * 2 020 offres, 295 seulement portaient des coordonnees. Les autres ont
+ * pourtant leur commune et leur code postal, et la Base Adresse Nationale sait
+ * les situer gratuitement.
+ *
+ * Le travail se fait par commune, pas par offre : les 1 725 annonces non
+ * situees ne representent que 1 040 couples code postal / commune distincts. Le
+ * rattrapage initial prend donc environ une minute, et les balayages suivants
+ * n'ont plus que quelques communes nouvelles a traiter — l'import planifie les
+ * prend lui-meme au passage.
+ */
+programme
+  .command('geocoder:offres')
+  .description('Situe les offres collectees a partir de leur commune, via la BAN')
+  .option('--max <n>', 'plafond de communes a situer en une passe', Number, 400)
+  .action(async (options) => {
+    const app = await contexte();
+    const geocodage = app.get(GeocodageOffresService);
+
+    try {
+      const avant = await geocodage.couverture();
+      const rapport = await geocodage.rattraper(options.max);
+      const apres = await geocodage.couverture();
+
+      console.log('');
+      console.log(`Communes examinees     ${rapport.communesExaminees}`);
+      console.log(`  situees              ${rapport.communesSituees}`);
+      console.log(`  introuvables         ${rapport.communesIntrouvables}`);
+      console.log(`Offres situees         ${rapport.offresSituees}`);
+      console.log(
+        `Couverture             ${avant.situees}/${avant.total} (${avant.part} %) ` +
+          `-> ${apres.situees}/${apres.total} (${apres.part} %)`,
+      );
+
+      if (rapport.communesExaminees === options.max) {
+        console.log('');
+        console.log('Plafond atteint : relancer la commande pour continuer.');
+      }
+
       console.log('');
     } finally {
       await app.close();

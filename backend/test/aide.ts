@@ -49,7 +49,7 @@ export function avec(app: INestApplication, session: Session) {
 export function jetonDuCourriel(
   app: INestApplication,
   destinataire: string,
-  page: 'verification' | 'reinitialisation' = 'verification',
+  page: 'verification' | 'reinitialisation' | 'conservation' = 'verification',
 ): string {
   const courriel = app.get(MailService).dernierPour(destinataire);
 

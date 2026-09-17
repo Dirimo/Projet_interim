@@ -8,40 +8,83 @@ const prisma = new PrismaClient();
 const MOT_DE_PASSE_DEMO = 'Releve2026!';
 
 // Le code ROME rattache chaque diplome au marche observe sur France Travail :
-// J1501 pour les soins, K1302 pour l'assistance aux adultes, K1304 pour les
-// services domestiques. Ce sont les trois codes que la collecte importe.
+// J1501 pour les soins, K1304 pour les services a la personne. Ce sont les
+// codes que la collecte importe.
+//
+// Le referentiel se limite a ces deux diplomes : ce sont ceux sur lesquels
+// l'agence sait recruter et verifier une piece. En lister davantage revenait a
+// laisser declarer des titres que personne ne controle, et a publier des
+// missions qu'aucun profil ne peut satisfaire. Toute ligne absente de cette
+// liste est retiree de la base a la fin du seed (voir `elaguerReferentiel`).
 const QUALIFICATIONS: { code: string; libelle: string; romeCode: string }[] = [
   {
-    code: 'DEAES',
-    libelle: "Diplome d'Etat d'accompagnant educatif et social",
-    romeCode: 'K1302',
-  },
-  {
     code: 'DEAS',
-    libelle: "Diplome d'Etat d'aide-soignant",
+    libelle: "Diplôme d'État d'aide-soignant",
     romeCode: 'J1501',
-  },
-  {
-    code: 'ADVF',
-    libelle: 'Titre pro assistant de vie aux familles',
-    romeCode: 'K1304',
   },
   {
     code: 'AVS',
     libelle: 'Auxiliaire de vie sociale',
     romeCode: 'K1304',
   },
-  {
-    code: 'ASH',
-    libelle: 'Agent des services hospitaliers',
-    romeCode: 'K1302',
-  },
-  {
-    code: 'AMP',
-    libelle: 'Aide medico-psychologique',
-    romeCode: 'K1302',
-  },
 ];
+
+/**
+ * Retire de la base les diplomes qui ne sont plus au referentiel.
+ *
+ * Le seed pose les lignes voulues mais ne savait pas defaire : une base semee
+ * avant la reduction gardait les six diplomes d'origine, et la liste deroulante
+ * du profil continuait de les proposer. Les cles etrangeres sont en
+ * `Restrict`, donc l'ordre compte : on detache d'abord, on supprime ensuite.
+ *
+ * Un rattachement candidat est supprime plutot que reporte sur un autre
+ * diplome : deplacer un titre d'une personne reviendrait a lui attribuer
+ * quelque chose qu'elle n'a pas declare. Une mission, elle, ne peut pas se
+ * passer de son diplome requis — si une mission hors seed en exige un retire,
+ * on laisse la ligne en place et on le dit, plutot que de casser la mission.
+ */
+async function elaguerReferentiel(): Promise<void> {
+  const retenus = QUALIFICATIONS.map((qualification) => qualification.code);
+
+  const obsoletes = await prisma.qualification.findMany({
+    where: { code: { notIn: retenus } },
+    select: { id: true, code: true, _count: { select: { missions: true } } },
+  });
+
+  if (!obsoletes.length) return;
+
+  const retenues = obsoletes.filter((qualification) => qualification._count.missions > 0);
+  const aRetirer = obsoletes.filter((qualification) => qualification._count.missions === 0);
+
+  if (retenues.length) {
+    console.warn(
+      'Diplomes conserves malgre leur retrait du referentiel, des missions les exigent :',
+      retenues.map((qualification) => qualification.code).join(', '),
+    );
+  }
+
+  if (!aRetirer.length) return;
+
+  const identifiants = aRetirer.map((qualification) => qualification.id);
+
+  await prisma.qualificationCandidat.deleteMany({
+    where: { qualificationId: { in: identifiants } },
+  });
+
+  // Un poste garde sa duree et son employeur : il perd seulement sa
+  // correspondance au referentiel, et compte des lors pour moitie.
+  await prisma.experienceProfessionnelle.updateMany({
+    where: { qualificationId: { in: identifiants } },
+    data: { qualificationId: null },
+  });
+
+  await prisma.qualification.deleteMany({ where: { id: { in: identifiants } } });
+
+  console.log(
+    'Diplomes retires du referentiel :',
+    aRetirer.map((qualification) => qualification.code).join(', '),
+  );
+}
 
 async function main(): Promise<void> {
   const agence = await prisma.agence.upsert({
@@ -211,14 +254,14 @@ async function main(): Promise<void> {
       rayonKm: 25,
       permisB: true,
       vehicule: true,
-      qualifications: ['ADVF', 'AVS'],
+      qualifications: ['AVS'],
       // Le profil le plus solide du jeu : huit ans de terrain, au-dela du
       // plafond de cinq ans, donc au maximum de la composante.
       experiences: [
         {
           employeur: 'ADMR Loire-Atlantique',
           intitule: 'Auxiliaire de vie',
-          qualification: 'ADVF',
+          qualification: 'AVS',
           debutLe: '2018-01-08',
           finLe: null,
           quotitePourcent: 100,
@@ -269,7 +312,7 @@ async function main(): Promise<void> {
       rayonKm: 30,
       permisB: true,
       vehicule: true,
-      qualifications: ['DEAES'],
+      qualifications: ['AVS'],
       // Une reconversion : trois ans de caisse, puis deux ans dans le metier.
       // Le hors-referentiel compte pour moitie.
       experiences: [
@@ -284,8 +327,8 @@ async function main(): Promise<void> {
         },
         {
           employeur: 'SAAD Les Glycines',
-          intitule: 'Accompagnante educative et sociale',
-          qualification: 'DEAES',
+          intitule: 'Auxiliaire de vie sociale',
+          qualification: 'AVS',
           debutLe: '2022-03-01',
           finLe: null,
           quotitePourcent: 60,
@@ -306,7 +349,7 @@ async function main(): Promise<void> {
       rayonKm: 20,
       permisB: true,
       vehicule: false,
-      qualifications: ['ASH'],
+      qualifications: ['DEAS'],
       // Aucune experience : le profil eligible qui marque zero sur la
       // composante la plus lourde. C'est l'etat de depart de toute inscription.
       experiences: [],
@@ -419,9 +462,10 @@ async function main(): Promise<void> {
     });
   }
 
-  // Deux besoins ouverts, chez deux SAAD differents.
-  const deaes = await prisma.qualification.findUniqueOrThrow({ where: { code: 'DEAES' } });
-  const advf = await prisma.qualification.findUniqueOrThrow({ where: { code: 'ADVF' } });
+  // Deux besoins ouverts, chez deux SAAD differents : un en soins, un en aide
+  // a domicile, soit un par diplome du referentiel.
+  const deas = await prisma.qualification.findUniqueOrThrow({ where: { code: 'DEAS' } });
+  const avs = await prisma.qualification.findUniqueOrThrow({ where: { code: 'AVS' } });
   const lieuTilleuls = await prisma.lieuIntervention.findFirstOrThrow({
     where: { clientId: saadTilleuls.id },
   });
@@ -431,13 +475,16 @@ async function main(): Promise<void> {
 
   await prisma.mission.upsert({
     where: { reference: 'M-2026-0001' },
-    update: {},
+    // Le diplome exige est reecrit et pas seulement pose a la creation : sans
+    // cela, une base semee avant la reduction du referentiel garderait un
+    // rattachement vers une ligne que l'elagage ne pourrait plus retirer.
+    update: { qualificationRequiseId: deas.id },
     create: {
       reference: 'M-2026-0001',
       agenceId: agence.id,
       clientId: saadTilleuls.id,
       lieuId: lieuTilleuls.id,
-      qualificationRequiseId: deaes.id,
+      qualificationRequiseId: deas.id,
       statut: 'PUBLIEE',
       dateDebut: new Date('2026-09-15'),
       dateFin: new Date('2026-09-19'),
@@ -452,13 +499,13 @@ async function main(): Promise<void> {
 
   await prisma.mission.upsert({
     where: { reference: 'M-2026-0002' },
-    update: {},
+    update: { qualificationRequiseId: avs.id },
     create: {
       reference: 'M-2026-0002',
       agenceId: agence.id,
       clientId: saad.id,
       lieuId: lieuDomicile.id,
-      qualificationRequiseId: advf.id,
+      qualificationRequiseId: avs.id,
       statut: 'PUBLIEE',
       dateDebut: new Date('2026-09-14'),
       dateFin: new Date('2026-09-20'),
@@ -482,6 +529,8 @@ async function main(): Promise<void> {
        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
     `);
   }
+
+  await elaguerReferentiel();
 
   const compteurs = {
     qualifications: await prisma.qualification.count(),

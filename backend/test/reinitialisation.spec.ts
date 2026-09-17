@@ -242,6 +242,7 @@ describe('reinitialisation du mot de passe', () => {
             vehicule: false,
           },
           compte: { email: 'croisee@test.example', motDePasse: 'MotDePasseCroise2026' },
+          conditionsAcceptees: true,
         })
         .expect(201);
 
@@ -282,6 +283,7 @@ describe('reinitialisation du mot de passe', () => {
             vehicule: false,
           },
           compte: { email: 'parallele@test.example', motDePasse: 'MotDePasseParallele2026' },
+          conditionsAcceptees: true,
         })
         .expect(201);
 
@@ -319,6 +321,7 @@ describe('reinitialisation du mot de passe', () => {
           vehicule: false,
         },
         compte: { email: 'jamais.confirmee@test.example', motDePasse: 'MotDePasseJamais2026' },
+        conditionsAcceptees: true,
       })
       .expect(201);
 

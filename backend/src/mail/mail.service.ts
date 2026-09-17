@@ -7,6 +7,16 @@ export interface Courriel {
   sujet: string;
   texte: string;
   html: string;
+
+  /**
+   * Adresse a laquelle repondre, quand elle differe de l'expediteur.
+   *
+   * Sert au formulaire de contact : le message part de l'adresse technique du
+   * site — c'est elle qui est autorisee a emettre pour le domaine — mais
+   * « Repondre » doit tomber sur la personne qui a ecrit, pas sur une boite
+   * qui ne lit rien.
+   */
+  repondreA?: string;
 }
 
 /**
@@ -108,6 +118,7 @@ export class MailService implements OnModuleDestroy {
         subject: courriel.sujet,
         text: courriel.texte,
         html: courriel.html,
+        ...(courriel.repondreA ? { replyTo: courriel.repondreA } : {}),
       });
 
       this.logger.log(`Courriel envoye a ${courriel.destinataire} : ${courriel.sujet}`);

@@ -1,11 +1,12 @@
 import { ConflictException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
-import type {
-  EspacePersonnel,
-  InscriptionInterimaire,
-  ReponseInscription,
-  UtilisateurSession,
+import {
+  VERSION_CONDITIONS,
+  type EspacePersonnel,
+  type InscriptionInterimaire,
+  type ReponseInscription,
+  type UtilisateurSession,
 } from '@releve/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { GeocodageService } from '../geocodage/geocodage.service';
@@ -120,6 +121,11 @@ export class InscriptionsService {
             motDePasse: empreinte,
             role: 'CANDIDAT',
             candidatId: candidat.id,
+            // La date et la version sont ecrites ensemble : accepter un texte,
+            // c'est accepter celui-la. Une revision ulterieure ne peut pas se
+            // prevaloir d'un consentement donne a la precedente.
+            conditionsAccepteesLe: new Date(),
+            conditionsVersion: VERSION_CONDITIONS,
           },
         });
       });

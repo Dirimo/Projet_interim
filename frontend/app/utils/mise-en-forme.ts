@@ -25,8 +25,24 @@ const MOIS = [
   'dec.',
 ];
 
-/** Minuit local du jour porte par une date ISO « 2026-09-14 ». */
+/**
+ * Le jour porte par une valeur ISO, dans le fuseau du navigateur.
+ *
+ * Deux formes arrivent ici et n'appellent pas le meme traitement. Une date
+ * seule — « 2026-09-14 », une date de mission — n'a pas de fuseau : on la
+ * decoupe et on pose minuit local, sinon `new Date()` la lirait en UTC et elle
+ * reculerait d'un jour a l'ouest de Greenwich. Un horodatage complet —
+ * « 2026-10-16T22:30:00.000Z », une echeance de conservation — designe au
+ * contraire un instant, et c'est au fuseau de dire quel jour il tombe.
+ *
+ * Le decoupage applique a un horodatage rendait « 16T10:55:20.123Z » puis
+ * `NaN`, donc une date invalide qui faisait tomber la page au rendu serveur.
+ */
 function jourLocal(dateIso: string): Date {
+  if (dateIso.includes('T')) {
+    return new Date(dateIso);
+  }
+
   const [annee, mois, jour] = dateIso.split('-').map(Number);
 
   return new Date(annee ?? 1970, (mois ?? 1) - 1, jour ?? 1);

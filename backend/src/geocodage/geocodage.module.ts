@@ -12,6 +12,10 @@ import { GeocodageService } from './geocodage.service';
  */
 @Module({
   providers: [BanClient, GeocodageService],
-  exports: [GeocodageService],
+  // `BanClient` sort aussi : le geocodage des offres collectees interroge la
+  // BAN directement, sans passer par `GeocodageService` — celui-ci ecrit sur
+  // les tables `candidat` et `lieu_intervention`, qui portent une colonne
+  // PostGIS que les offres n'ont pas.
+  exports: [GeocodageService, BanClient],
 })
 export class GeocodageModule {}

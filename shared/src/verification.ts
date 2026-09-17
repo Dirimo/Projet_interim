@@ -49,6 +49,19 @@ export interface ReponseInscription {
  * plutot qu'un « identifiants invalides » qui enverrait la personne chercher
  * une faute de frappe inexistante.
  */
+/**
+ * Duree de vie du lien de confirmation d'adresse, en heures.
+ *
+ * Declaree ici plutot que dans le seul backend : la politique de
+ * confidentialite annonce cette duree, et une valeur recopiee a la main y
+ * derive. C'est deja arrive — la page annoncait 48 heures pour le lien de
+ * reinitialisation, qui n'en vit qu'une.
+ *
+ * `VERIFICATION_EXPIRE_HEURES` la surcharge par deploiement ; la page, elle,
+ * affiche cette valeur de reference.
+ */
+export const VERIFICATION_EXPIRE_HEURES = 48;
+
 export const CODE_EMAIL_NON_VERIFIE = 'EMAIL_NON_VERIFIE';
 
 /**
