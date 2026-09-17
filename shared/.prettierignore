@@ -1,7 +1,0 @@
-node_modules
-dist
-.nuxt
-.output
-pnpm-lock.yaml
-docs/*.html
-backend/prisma/migrations
