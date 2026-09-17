@@ -82,72 +82,156 @@ export const missionsVitrineQuerySchema = paginationQuerySchema.extend({
 
 export type MissionsVitrineQuery = z.infer<typeof missionsVitrineQuerySchema>;
 
-// --------------------------------------------------- suggestions France Travail
+// ------------------------------------------------- annonces partenaire France Travail
 
 /**
- * Offre du marché rapprochée du profil d'un candidat.
+ * Annonce diffusée par France Travail, présentée au candidat validé.
  *
- * Le rapprochement se fait sur le métier et sur la distance, et sur rien
- * d'autre. C'est une limite des données, pas un choix de confort : une offre
- * France Travail ne porte ni date, ni horaire exploitable — seulement un texte
- * libre du type « 35H/semaine, travail en journée ». Le moteur de score de
- * Relève, qui pèse d'abord le chevauchement entre les créneaux du candidat et
- * ceux de la mission, n'aurait rien à mesurer.
+ * Ce n'est pas une mission Relève, et rien dans l'affichage ne doit le laisser
+ * croire : elle appartient à un autre employeur — souvent une agence
+ * concurrente — et **on n'y postule pas depuis la plateforme**. Aucun lien de
+ * candidature n'est donc exposé, pas même vers la source : le candidat lit
+ * l'annonce, et s'il veut avancer, il parle à Relève.
+ *
+ * Le mot « partenaire » désigne France Travail, dont la plateforme est
+ * partenaire déclarée au titre de la licence de réutilisation — l'API elle-même
+ * s'appelle `api.francetravail.io/partenaire`. Il ne désigne pas l'employeur de
+ * l'annonce, avec qui Relève n'a aucun accord. C'est pourquoi la source reste
+ * nommée sur chaque annonce : sans elle, le mot deviendrait faux.
+ *
+ * Réservée aux candidats dont l'agence a validé le dossier. Montrer le marché à
+ * quelqu'un qui ne peut pas encore être placé serait lui ouvrir une porte
+ * fermée.
  */
-export interface SuggestionMarche {
+export interface AnnoncePartenaire {
   id: string;
-  /** Toujours affichée : la licence impose de citer la source. */
+  /** Nommée sur chaque annonce : obligation de licence, et garante du mot « partenaire ». */
   source: string;
   intitule: string;
   entreprise: string | null;
   communeNom: string | null;
   departement: string | null;
-  /** Distance depuis le domicile du candidat, en kilomètres. */
-  distanceKm: number | null;
-  /**
-   * Vraie quand la distance part du centre de la commune et non d'une adresse.
-   *
-   * France Travail ne géolocalise qu'une annonce sur sept ; les autres sont
-   * situées à la commune, ce qui suffit à filtrer sur un rayon de vingt ou
-   * trente kilomètres mais pas à annoncer un chiffre au kilomètre près.
-   * L'affichage doit écrire « environ 12 km » dans ce cas — présenter une
-   * approximation comme une mesure est le plus sûr moyen de la voir citée
-   * comme telle.
-   */
-  distanceApprochee: boolean;
+  codePostal: string | null;
+  /** Libellé d'origine (« Horaire de 14.0 Euros »), affiché tel quel. */
   salaireLibelle: string | null;
   typeContratLibelle: string | null;
   dureeTravailLibelle: string | null;
   experienceExigee: boolean;
+  experienceLibelle: string | null;
+  nombrePostes: number;
   publieeLe: string;
+  /** La licence impose d'afficher la date de dernière actualisation. */
   actualiseeLe: string | null;
-  /** Seul chemin pour postuler : Relève ne reçoit pas ces candidatures. */
-  urlOrigine: string | null;
-}
-
-export interface SuggestionsMarche {
-  suggestions: SuggestionMarche[];
-  /** Total des offres correspondant au profil, au-delà de celles renvoyées. */
-  total: number;
   /**
-   * Pourquoi la liste est vide, quand elle l'est. Un encart muet ferait croire
-   * à une panne ; ces motifs disent au candidat ce qu'il peut y changer.
+   * Distance depuis le domicile du candidat, quand elle est mesurable. Sert au
+   * tri « les plus proches », jamais à filtrer : le catalogue reste entier.
    */
-  motif: 'AUCUN_METIER' | 'ADRESSE_ABSENTE' | 'AUCUNE_OFFRE' | null;
+  distanceKm: number | null;
+  /** Vraie quand la distance part du centre de la commune, pas d'une adresse. */
+  distanceApprochee: boolean;
 }
 
-export const suggestionsQuerySchema = z.object({
-  limite: z.coerce.number().int().min(1).max(50).default(6),
-});
-
-export type SuggestionsQuery = z.infer<typeof suggestionsQuerySchema>;
+/** L'annonce entière. Toujours sans chemin de candidature. */
+export interface AnnoncePartenaireDetail extends AnnoncePartenaire {
+  description: string | null;
+  entrepriseDescription: string | null;
+  romeCode: string | null;
+  romeLibelle: string | null;
+  qualificationLibelle: string | null;
+  secteurActiviteLibelle: string | null;
+  competences: { code: string | null; libelle: string; exigence: string | null }[];
+  horaires: string[];
+  conditionsExercice: string[];
+  natureContrat: string | null;
+}
 
 /**
- * Mention de source des offres du marché.
+ * Tri proposé au candidat.
+ *
+ * `PROCHES` par défaut quand son adresse est connue : sur un catalogue national
+ * de deux mille annonces, l'ordre de publication n'apprend rien à quelqu'un qui
+ * cherche autour de chez lui. Le repli est `RECENTES`, qui ne demande aucune
+ * coordonnée.
+ */
+export const triAnnoncesSchema = z.enum(['PROCHES', 'RECENTES', 'TAUX_DECROISSANT']);
+export type TriAnnonces = z.infer<typeof triAnnoncesSchema>;
+
+/**
+ * Booléen lu depuis une chaîne de requête.
+ *
+ * `z.coerce.boolean()` ne convient pas : il applique `Boolean()`, et toute
+ * chaîne non vide est vraie — y compris `'false'`. Le piège est silencieux, et
+ * c'est ce qui le rend coûteux : le filtre s'applique quand on le croit inactif,
+ * sans erreur ni journal.
+ *
+ * Seules les formes explicitement fausses le sont ; tout le reste suit la
+ * lecture naturelle d'une case cochée.
+ */
+const booleenDeRequete = z
+  .union([z.boolean(), z.string()])
+  .transform((valeur) =>
+    typeof valeur === 'boolean'
+      ? valeur
+      : !['false', '0', '', 'off'].includes(valeur.toLowerCase()),
+  );
+
+export const annoncesQuerySchema = paginationQuerySchema.extend({
+  recherche: z.string().trim().min(2).max(120).optional(),
+  departement: z
+    .string()
+    .trim()
+    .regex(/^(\d{2,3}|2[AB])$/, 'Code département invalide')
+    .optional(),
+  rome: z
+    .string()
+    .trim()
+    .regex(/^[A-Z]\d{4}$/, 'Code ROME invalide')
+    .optional(),
+  /**
+   * Restreint au rayon de déplacement déclaré. Faux par défaut : le candidat a
+   * demandé à voir **tout** le marché, et c'est à lui de refermer la focale.
+   *
+   * Surtout pas `z.coerce.boolean()` ici. Une chaîne de requête ne transporte
+   * que du texte, et `Boolean('false')` vaut `true` — le filtre se serait
+   * appliqué en permanence, sans erreur ni message : le candidat aurait vu
+   * trente-quatre annonces là où le catalogue en compte deux mille, et rien
+   * n'aurait signalé l'écart.
+   */
+  monRayon: booleenDeRequete.default(false),
+  tri: triAnnoncesSchema.default('PROCHES'),
+});
+
+export type AnnoncesQuery = z.infer<typeof annoncesQuerySchema>;
+
+/** Métiers présents dans le catalogue, pour le menu déroulant. */
+export interface OptionsAnnonces {
+  departements: { code: string; annonces: number }[];
+  metiers: { romeCode: string; libelle: string; annonces: number }[];
+  /** Total des annonces en ligne, filtres compris ou non. */
+  total: number;
+}
+
+/**
+ * Pourquoi le catalogue est fermé, quand il l'est.
+ *
+ * `DOSSIER_NON_VALIDE` est le cas voulu : tant que l'agence n'a pas validé le
+ * dossier, le candidat ne voit pas le marché. L'encart le dit, plutôt que de
+ * rester vide — un écran muet passerait pour une panne.
+ */
+export const motifAnnoncesSchema = z.enum(['DOSSIER_NON_VALIDE']);
+export type MotifAnnonces = z.infer<typeof motifAnnoncesSchema>;
+
+/**
+ * Mention de source des annonces partenaire.
  *
  * Elle vit dans le paquet partagé parce que plusieurs endroits la disent :
- * l'encart de suggestions et les mentions légales. Deux copies finiraient par
- * diverger, et c'est la page publique qui aurait tort.
+ * l'encart du tableau de bord, la page de catalogue, la fiche d'une annonce et
+ * les mentions légales. Cinq copies finiraient par diverger, et c'est la page
+ * publique qui aurait tort.
  */
 export const MENTION_SOURCE_FRANCE_TRAVAIL =
-  'Offres diffusées par France Travail, présentées au titre de la licence de réutilisation de la base d’offres d’emploi. La candidature se fait auprès de l’employeur concerné.';
+  'Annonces diffusées par France Travail et présentées au titre de la licence de réutilisation de la base d’offres d’emploi. Relève n’est pas l’employeur de ces postes et ne reçoit pas de candidature pour eux.';
+
+/** Ce que l'encart propose à la place d'un bouton « Postuler ». */
+export const INVITATION_CONTACT_ANNONCES =
+  'Ces annonces montrent ce que cherche le secteur autour de vous. Pour être placé par Relève, parlez de votre projet à votre chargé de recrutement.';

@@ -78,7 +78,16 @@ const PAGES_EXTERNES = new Set(['/mon-espace', '/mon-compte']);
  * saurait pas couvrir.
  */
 const SECTIONS_PAR_ROLE: Partial<Record<RoleUtilisateur, readonly string[]>> = {
-  CANDIDAT: ['/tableau-de-bord', '/missions', '/suivi', '/candidature', '/mon-profil'],
+  CANDIDAT: [
+    '/tableau-de-bord',
+    '/missions',
+    '/suivi',
+    '/candidature',
+    '/mon-profil',
+    // Annonces partenaire : le marche collecte sur France Travail. Reserve au
+    // candidat, et l'API le referme une seconde fois sur le dossier valide.
+    '/annonces',
+  ],
   CLIENT: ['/etablissement'],
 };
 

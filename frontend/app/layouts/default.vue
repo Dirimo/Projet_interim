@@ -43,6 +43,7 @@ const liens = computed<{ to: string; label: string }[]>(() => {
     return [
       { to: '/tableau-de-bord', label: 'Tableau de bord' },
       { to: '/missions', label: 'Missions' },
+      { to: '/annonces', label: 'Annonces partenaire' },
       { to: '/mon-profil', label: 'Mon profil' },
       { to: '/mon-compte', label: 'Paramètres' },
     ];

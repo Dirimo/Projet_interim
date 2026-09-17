@@ -123,7 +123,9 @@ const missionsProches = computed(() =>
           </p>
 
           <ul v-if="!complet && data.completude.manques.length" class="manques">
-            <li v-for="manque in data.completude.manques" :key="manque.cle">{{ manque.libelle }}</li>
+            <li v-for="manque in data.completude.manques" :key="manque.cle">
+              {{ manque.libelle }}
+            </li>
           </ul>
 
           <NuxtLink class="action" to="/mon-profil">
@@ -179,10 +181,17 @@ const missionsProches = computed(() =>
       </p>
 
       <!--
-        Placé après les missions Relève, et jamais avant : ce sont les offres de
-        l'agence qui priment, celles du marché ne sont qu'un complément.
+        Renvoi, et non second catalogue : les missions Relève priment sur cette
+        page, et le marché a la sienne. Deux listes côte à côte inviteraient à
+        les comparer, alors qu'on ne postule qu'à l'une des deux.
       -->
-      <AppOffresMarche />
+      <NuxtLink to="/annonces" class="vers-annonces">
+        <span class="intitule">Voir les annonces partenaire</span>
+        <span class="precision">
+          Ce que cherche le secteur autour de vous, diffusé par France Travail. Relève n'est pas
+          l'employeur de ces postes.
+        </span>
+      </NuxtLink>
     </template>
   </section>
 </template>
@@ -486,5 +495,39 @@ h1 {
   .encart {
     padding: 24px;
   }
+}
+/*
+ * Bordure discontinue, comme les cartes d'annonces : elle signale qu'on quitte
+ * le périmètre des missions Relève avant même qu'on ait lu l'intitulé.
+ */
+.vers-annonces {
+  display: block;
+  margin-top: 28px;
+  padding: 18px 20px;
+  color: inherit;
+  text-decoration: none;
+  background: var(--surface);
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+}
+
+.vers-annonces:hover,
+.vers-annonces:focus-visible {
+  border-style: solid;
+}
+
+.vers-annonces .intitule {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.vers-annonces .precision {
+  display: block;
+  max-width: 68ch;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--muted);
 }
 </style>

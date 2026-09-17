@@ -1,12 +1,20 @@
-import { Injectable } from '@nestjs/common';
-import { OrigineCoordonnees, Prisma, StatutOffreCollectee } from '@prisma/client';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  OrigineCoordonnees,
+  Prisma,
+  StatutOffreCollectee,
+  type OffreCollectee,
+} from '@prisma/client';
 import type {
+  AnnoncePartenaire,
+  AnnoncePartenaireDetail,
+  AnnoncesQuery,
   MissionsVitrineQuery,
   MissionVitrine,
+  MotifAnnonces,
+  OptionsAnnonces,
   OptionsVitrine,
   PageResultat,
-  SuggestionMarche,
-  SuggestionsMarche,
 } from '@releve/shared';
 import { distanceKm } from '../matching/score';
 import { PrismaService } from '../prisma/prisma.service';
@@ -20,6 +28,9 @@ import { PrismaService } from '../prisma/prisma.service';
  * qui n'est plus vraiment ouvert.
  */
 const ETATS_VITRINE = ['PUBLIEE', 'EN_MATCHING'] as const;
+
+/** Valeur de la colonne `source` pour les offres venant de France Travail. */
+const SOURCE_FRANCE_TRAVAIL = 'FRANCE_TRAVAIL';
 
 /**
  * Plafond de securite sur le lot rapporte par la boite englobante.
@@ -41,13 +52,15 @@ const NOMS_DEPARTEMENTS: Record<string, string> = {
 };
 
 /**
- * Ce que le site montre a qui n'est pas connecte, et ce qu'il suggere a un
- * candidat qui l'est.
+ * Ce que le site montre a qui n'est pas connecte, et ce qu'il ouvre a un
+ * candidat dont le dossier est valide.
  *
  * Les deux vivent dans le meme service parce qu'ils repondent a la meme
  * question — « qu'est-ce qui se cherche autour de moi ? » — mais ils ne
- * puisent pas au meme endroit, et c'est essentiel : la vitrine lit les missions
- * de Releve, les suggestions lisent les offres collectees sur France Travail.
+ * puisent pas au meme endroit, et la distinction gouverne tout le fichier : la
+ * vitrine publique lit les missions de Releve, sur lesquelles on postule ici ;
+ * les annonces partenaire lisent les offres collectees sur France Travail, sur
+ * lesquelles on ne postule pas du tout depuis la plateforme.
  */
 @Injectable()
 export class VitrineService {
@@ -170,138 +183,294 @@ export class VitrineService {
   }
 
   /**
-   * Offres du marche rapprochees du profil d'un candidat.
+   * Catalogue des annonces partenaire, pour un candidat au dossier valide.
    *
-   * Deux criteres, et deux seulement : le metier et la distance.
+   * Tout le marche collecte, et pas une selection : le candidat a demande a voir
+   * ce qui se cherche, pas six pistes choisies pour lui. Les filtres sont a sa
+   * main — departement, metier, recherche libre, et une case « dans mon rayon »
+   * qui reste decochee par defaut.
    *
-   * Le metier passe par le code ROME de la qualification du candidat — DEAS
-   * mene a J1501, AVS a K1304 — ce qui fait de la table des qualifications le
-   * pont deja prevu entre Releve et France Travail.
+   * Aucun chemin de candidature n'en sort, pas meme vers la source. C'est la
+   * decision qui gouverne toute cette methode : ces postes appartiennent a
+   * d'autres employeurs, Releve ne peut y placer personne, et afficher un bouton
+   * laisserait croire le contraire a quelqu'un qui attendrait ensuite une
+   * reponse qui ne viendrait jamais.
    *
-   * La distance se mesure depuis le domicile du candidat, avec son propre rayon
-   * de deplacement. Un rayon large ne doit pas noyer le candidat sous des
-   * offres a la limite : le classement remonte les plus proches d'abord.
-   *
-   * Ce qui n'est volontairement pas fait : le score de Releve. Il pese d'abord
-   * le chevauchement entre les creneaux declares et les horaires de la mission,
-   * et une offre France Travail n'annonce pas ses horaires autrement qu'en
-   * texte libre. Un score calcule sur des champs absents serait un chiffre
-   * invente, affiche avec l'autorite d'une mesure.
+   * La porte d'entree est le statut ACTIF, c'est-a-dire le dossier valide par
+   * l'agence — la meme regle qui commande deja l'envoi des courriels de
+   * missions. Montrer le marche a quelqu'un qui ne peut pas encore etre place
+   * serait lui ouvrir une porte fermee.
    */
-  async suggestions(candidatId: string, limite: number): Promise<SuggestionsMarche> {
-    const candidat = await this.prisma.candidat.findUnique({
-      where: { id: candidatId },
-      select: {
-        latitude: true,
-        longitude: true,
-        rayonKm: true,
-        codePostal: true,
-        qualifications: {
-          select: { qualification: { select: { romeCode: true } } },
-        },
-      },
-    });
+  async annonces(
+    candidatId: string,
+    query: AnnoncesQuery,
+  ): Promise<PageResultat<AnnoncePartenaire> & { motif: MotifAnnonces | null }> {
+    const candidat = await this.candidatValide(candidatId);
 
-    const romes = [
-      ...new Set(
-        (candidat?.qualifications ?? [])
-          .map((lien) => lien.qualification.romeCode)
-          .filter((code): code is string => Boolean(code)),
-      ),
-    ];
-
-    if (!romes.length) {
-      return { suggestions: [], total: 0, motif: 'AUCUN_METIER' };
+    if (!candidat) {
+      return {
+        donnees: [],
+        total: 0,
+        page: query.page,
+        limite: query.limite,
+        motif: 'DOSSIER_NON_VALIDE',
+      };
     }
 
-    if (candidat?.latitude == null || candidat.longitude == null) {
-      return { suggestions: [], total: 0, motif: 'ADRESSE_ABSENTE' };
-    }
-
-    const departement = departementDepuisCodePostal(candidat.codePostal ?? '');
-    const boite = boiteEnglobante(candidat.latitude, candidat.longitude, candidat.rayonKm);
+    const where = this.filtreAnnonces(candidat, query);
 
     /**
-     * Presiction en base, puis mesure exacte en memoire.
+     * Le tri par distance se calcule en memoire : la base ne sait pas ordonner
+     * sur une haversine sans index spatial sur cette table. On rapporte donc un
+     * lot plafonne, qu'on classe puis qu'on decoupe ici.
      *
-     * La boite englobante ecarte en SQL tout ce qui ne peut pas etre dans le
-     * rayon — un carre est grossier, mais il divise deja le lot par cent — et
-     * la distance a vol d'oiseau tranche ensuite les coins du carre. Sans ce
-     * premier filtre il faudrait charger les offres les plus recentes et
-     * esperer que les plus proches en fassent partie ; une annonce voisine
-     * publiee trois semaines plus tot serait passee au travers.
-     *
-     * Le repli departemental reste pour le residu : environ une offre sur cent
-     * n'a ni coordonnees de la source, ni commune que la BAN sache situer.
+     * Le plafond n'ampute rien tant que le candidat a resserre par departement
+     * ou par metier. Sur le catalogue national entier, il signifie que le tri
+     * « les plus proches » porte sur les quatre cents annonces les plus
+     * recentes — ce qui est le bon compromis : au-dela, c'est une recherche, pas
+     * un parcours.
      */
-    const lot = await this.prisma.offreCollectee.findMany({
-      where: {
-        statut: StatutOffreCollectee.ACTIVE,
-        romeCode: { in: romes },
-        OR: [
-          {
-            latitude: { gte: boite.latMin, lte: boite.latMax },
-            longitude: { gte: boite.lonMin, lte: boite.lonMax },
-          },
-          ...(departement ? [{ latitude: null, departement }] : []),
-        ],
-      },
-      orderBy: { publieeLe: 'desc' },
-      take: CANDIDATES_A_CLASSER,
-    });
+    const parDistance = query.tri === 'PROCHES' && candidat.latitude !== null;
 
-    const retenues = lot
-      .map((offre) => ({
-        offre,
-        distance: distanceKm(
-          candidat.latitude,
-          candidat.longitude,
-          offre.latitude,
-          offre.longitude,
-        ),
-      }))
-      .filter(({ offre, distance }) =>
-        distance === null ? offre.departement === departement : distance <= candidat.rayonKm,
-      )
-      // Les offres mesurees passent devant, de la plus proche a la plus
-      // lointaine ; celles qu'on ne sait que situer au departement suivent.
-      .sort((a, b) => {
+    // Typee a part : en ligne, l'inference de Prisma fige `take` sur la valeur
+    // litterale du premier terme et rejette le second.
+    const fenetre: Pick<Prisma.OffreCollecteeFindManyArgs, 'skip' | 'take'> = parDistance
+      ? { take: CANDIDATES_A_CLASSER }
+      : { skip: (query.page - 1) * query.limite, take: query.limite };
+
+    const [total, lignes] = await Promise.all([
+      this.prisma.offreCollectee.count({ where }),
+      this.prisma.offreCollectee.findMany({
+        where,
+        orderBy: this.ordreAnnonces(query.tri),
+        ...fenetre,
+      }),
+    ]);
+
+    const avecDistance = lignes.map((offre) => ({
+      offre,
+      distance: distanceKm(candidat.latitude, candidat.longitude, offre.latitude, offre.longitude),
+    }));
+
+    if (parDistance) {
+      // Les annonces non situees passent derriere : elles ne sont pas moins
+      // pertinentes, on ne sait simplement pas les placer, et les glisser dans
+      // le classement les ferait paraitre proches.
+      avecDistance.sort((a, b) => {
         if (a.distance === null && b.distance === null) return 0;
         if (a.distance === null) return 1;
         if (b.distance === null) return -1;
 
         return a.distance - b.distance;
       });
+    }
 
-    if (!retenues.length) {
-      return { suggestions: [], total: 0, motif: 'AUCUNE_OFFRE' };
+    const page = parDistance
+      ? avecDistance.slice((query.page - 1) * query.limite, query.page * query.limite)
+      : avecDistance;
+
+    return {
+      donnees: page.map(({ offre, distance }) => this.enAnnonce(offre, distance)),
+      total,
+      page: query.page,
+      limite: query.limite,
+      motif: null,
+    };
+  }
+
+  /**
+   * Une annonce entiere.
+   *
+   * Meme porte que la liste : un identifiant devine ne doit pas ouvrir le
+   * catalogue a un dossier que l'agence n'a pas valide.
+   */
+  async annonce(candidatId: string, id: string): Promise<AnnoncePartenaireDetail> {
+    const candidat = await this.candidatValide(candidatId);
+
+    if (!candidat) {
+      throw new ForbiddenException(
+        'Les annonces partenaire s ouvrent une fois votre dossier valide par l agence',
+      );
+    }
+
+    const offre = await this.prisma.offreCollectee.findFirst({
+      where: { id, source: SOURCE_FRANCE_TRAVAIL, statut: StatutOffreCollectee.ACTIVE },
+    });
+
+    if (!offre) {
+      throw new NotFoundException('Cette annonce n est plus diffusee');
+    }
+
+    const distance = distanceKm(
+      candidat.latitude,
+      candidat.longitude,
+      offre.latitude,
+      offre.longitude,
+    );
+
+    return {
+      ...this.enAnnonce(offre, distance),
+      description: offre.description,
+      entrepriseDescription: offre.entrepriseDescription,
+      romeCode: offre.romeCode,
+      romeLibelle: offre.romeLibelle,
+      qualificationLibelle: offre.qualificationLibelle,
+      secteurActiviteLibelle: offre.secteurActiviteLibelle,
+      competences: (offre.competences ?? []) as unknown as AnnoncePartenaireDetail['competences'],
+      horaires: (offre.horaires ?? []) as unknown as string[],
+      conditionsExercice: (offre.conditionsExercice ?? []) as unknown as string[],
+      natureContrat: offre.natureContrat,
+    };
+  }
+
+  /**
+   * Departements et metiers reellement presents dans le catalogue.
+   *
+   * Meme principe que pour la vitrine publique : les menus se construisent sur
+   * ce qui existe, pas sur une liste figee. Proposer un departement sans annonce
+   * ferait cliquer le candidat vers une page vide.
+   */
+  async optionsAnnonces(candidatId: string): Promise<OptionsAnnonces> {
+    const candidat = await this.candidatValide(candidatId);
+
+    if (!candidat) {
+      return { departements: [], metiers: [], total: 0 };
+    }
+
+    const base = {
+      source: SOURCE_FRANCE_TRAVAIL,
+      statut: StatutOffreCollectee.ACTIVE,
+    } satisfies Prisma.OffreCollecteeWhereInput;
+
+    const [parDepartement, parRome, total] = await Promise.all([
+      this.prisma.offreCollectee.groupBy({
+        by: ['departement'],
+        where: { ...base, departement: { not: null } },
+        _count: true,
+      }),
+      this.prisma.offreCollectee.groupBy({
+        by: ['romeCode', 'romeLibelle'],
+        where: { ...base, romeCode: { not: null } },
+        _count: true,
+      }),
+      this.prisma.offreCollectee.count({ where: base }),
+    ]);
+
+    // Un meme code ROME arrive avec plusieurs libelles selon les employeurs :
+    // on les additionne sous le premier rencontre plutot que de montrer deux
+    // lignes pour un seul metier.
+    const metiers = new Map<string, { romeCode: string; libelle: string; annonces: number }>();
+
+    for (const ligne of parRome) {
+      const code = ligne.romeCode!;
+      const deja = metiers.get(code);
+
+      metiers.set(code, {
+        romeCode: code,
+        // « Aide-soignant / Aide-soignante » : la forme masculin/feminin du
+        // referentiel n'apporte rien a un menu deroulant.
+        libelle: deja?.libelle ?? (ligne.romeLibelle ?? code).split('/')[0]!.trim(),
+        annonces: (deja?.annonces ?? 0) + ligne._count,
+      });
     }
 
     return {
-      suggestions: retenues.slice(0, limite).map(({ offre, distance }) => ({
-        id: offre.id,
-        source: offre.source,
-        intitule: offre.intitule,
-        entreprise: offre.entreprise,
-        communeNom: offre.communeNom,
-        departement: offre.departement,
-        // Null assume : l'offre est dans le bon departement, mais ni la source
-        // ni la BAN n'ont su la situer. Mieux vaut ne rien annoncer qu'estimer.
-        distanceKm: distance === null ? null : Math.round(distance * 10) / 10,
-        distanceApprochee: offre.origineCoordonnees === OrigineCoordonnees.COMMUNE,
-        salaireLibelle: offre.salaireLibelle,
-        typeContratLibelle: offre.typeContratLibelle,
-        dureeTravailLibelle: offre.dureeTravailLibelle,
-        experienceExigee: offre.experienceExigee,
-        publieeLe: offre.publieeLe.toISOString(),
-        actualiseeLe: offre.actualiseeLe?.toISOString() ?? null,
-        urlOrigine: offre.urlOrigine,
-      })) satisfies SuggestionMarche[],
-      // Le total porte sur ce qui est reellement a portee, pas sur le catalogue
-      // national : annoncer « 1871 offres » a quelqu'un qui n'en a que sept
-      // autour de lui serait trompeur.
-      total: retenues.length,
-      motif: null,
+      departements: parDepartement
+        .map((ligne) => ({ code: ligne.departement!, annonces: ligne._count }))
+        .sort((a, b) => a.code.localeCompare(b.code)),
+      metiers: [...metiers.values()].sort((a, b) => b.annonces - a.annonces),
+      total,
+    };
+  }
+
+  /**
+   * Le candidat, s'il a le droit de voir le marche.
+   *
+   * ACTIF veut dire « dossier valide par l'agence ». Les autres statuts —
+   * brouillon, en verification, inactif, archive — ne sont pas des erreurs :
+   * ce sont des moments ou la reponse est « pas encore », et c'est ce que
+   * l'ecran doit dire.
+   */
+  private async candidatValide(candidatId: string) {
+    return this.prisma.candidat.findFirst({
+      where: { id: candidatId, statut: 'ACTIF' },
+      select: { latitude: true, longitude: true, rayonKm: true },
+    });
+  }
+
+  private filtreAnnonces(
+    candidat: { latitude: number | null; longitude: number | null; rayonKm: number },
+    query: AnnoncesQuery,
+  ): Prisma.OffreCollecteeWhereInput {
+    const boite =
+      query.monRayon && candidat.latitude !== null && candidat.longitude !== null
+        ? boiteEnglobante(candidat.latitude, candidat.longitude, candidat.rayonKm)
+        : null;
+
+    return {
+      source: SOURCE_FRANCE_TRAVAIL,
+      statut: StatutOffreCollectee.ACTIVE,
+      ...(query.departement ? { departement: query.departement } : {}),
+      ...(query.rome ? { romeCode: query.rome } : {}),
+      ...(boite
+        ? {
+            latitude: { gte: boite.latMin, lte: boite.latMax },
+            longitude: { gte: boite.lonMin, lte: boite.lonMax },
+          }
+        : {}),
+      ...(query.recherche
+        ? {
+            OR: [
+              { intitule: { contains: query.recherche, mode: 'insensitive' } },
+              { entreprise: { contains: query.recherche, mode: 'insensitive' } },
+              { communeNom: { contains: query.recherche, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+  }
+
+  private ordreAnnonces(
+    tri: AnnoncesQuery['tri'],
+  ): Prisma.OffreCollecteeOrderByWithRelationInput[] {
+    // `nulls: 'last'` sur le taux : les trois quarts des annonces n'affichent
+    // aucune remuneration, et Postgres trierait ces NULL en tete d'un classement
+    // decroissant — la liste s'ouvrirait sur les annonces muettes.
+    if (tri === 'TAUX_DECROISSANT') {
+      return [{ tauxHoraire: { sort: 'desc', nulls: 'last' } }, { publieeLe: 'desc' }];
+    }
+
+    return [{ publieeLe: 'desc' }];
+  }
+
+  /**
+   * Passage de la ligne en base a ce que voit le candidat.
+   *
+   * Ce que cette projection ne contient pas compte autant que le reste. Pas
+   * d'`urlOrigine` : ce serait un chemin de candidature, et on a decide de n'en
+   * ouvrir aucun. Pas d'`intituleNormalise` non plus : c'est une valeur derivee
+   * pour le barometre, et l'afficher a la place du titre de l'employeur
+   * reviendrait a denaturer l'annonce, ce que la licence interdit.
+   */
+  private enAnnonce(offre: OffreCollectee, distance: number | null): AnnoncePartenaire {
+    return {
+      id: offre.id,
+      source: offre.source,
+      intitule: offre.intitule,
+      entreprise: offre.entreprise,
+      communeNom: offre.communeNom,
+      departement: offre.departement,
+      codePostal: offre.codePostal,
+      salaireLibelle: offre.salaireLibelle,
+      typeContratLibelle: offre.typeContratLibelle,
+      dureeTravailLibelle: offre.dureeTravailLibelle,
+      experienceExigee: offre.experienceExigee,
+      experienceLibelle: offre.experienceLibelle,
+      nombrePostes: offre.nombrePostes,
+      publieeLe: offre.publieeLe.toISOString(),
+      actualiseeLe: offre.actualiseeLe?.toISOString() ?? null,
+      distanceKm: distance === null ? null : Math.round(distance * 10) / 10,
+      distanceApprochee: offre.origineCoordonnees === OrigineCoordonnees.COMMUNE,
     };
   }
 }

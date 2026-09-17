@@ -700,31 +700,33 @@ describe('donnees publiques', () => {
   });
 
   /**
-   * Les offres du marche, reservees au candidat connecte.
+   * Les annonces partenaire, dans l'espace du candidat.
    *
-   * Elles ne sont plus publiques : elles lui suggerent des pistes, source citee
-   * et lien vers l'annonce d'origine.
+   * Deux invariants tiennent tout ce bloc, et ce sont eux qui distinguent ces
+   * annonces des missions Releve : elles ne s'ouvrent qu'a un dossier valide,
+   * et **aucune reponse n'en donne le chemin de candidature** — ni lien vers la
+   * source, ni bouton. Releve n'est pas l'employeur de ces postes.
    */
-  describe('suggestions du marche', () => {
+  describe('annonces partenaire', () => {
+    let jeu: Jeu;
     let candidat: Session;
 
     beforeAll(async () => {
-      const jeu = await reinitialiser();
+      jeu = await reinitialiser();
       candidat = await connecter(app, 'candidat.a@test.example');
-
-      await prisma.candidat.update({ where: { id: jeu.candidatA }, data: { rayonKm: 30 } });
-      await prisma.qualificationCandidat.create({
-        data: { candidatId: jeu.candidatA, qualificationId: jeu.qualification },
-      });
 
       await prisma.offreCollectee.deleteMany();
       await offres.importerDepuisFichier(
         JSON.stringify({
           resultats: [
-            // Nantes, a quelques centaines de metres de la candidate.
             offre({
-              id: 'S-PROCHE',
-              entreprise: { nom: 'VOISINE INTERIM' },
+              id: 'AP-NANTES',
+              intitule: 'AIDE-SOIGNANT(E) - Interim (H/F)',
+              description: 'Poste en EHPAD, equipe de dix personnes.',
+              entreprise: { nom: 'CONCURRENT INTERIM' },
+              origineOffre: {
+                urlOrigine: 'https://candidat.francetravail.fr/offres/recherche/detail/AP-NANTES',
+              },
               lieuTravail: {
                 libelle: '44 - Nantes',
                 commune: '44109',
@@ -732,14 +734,12 @@ describe('donnees publiques', () => {
                 latitude: 47.2201,
                 longitude: -1.5521,
               },
-              origineOffre: {
-                urlOrigine: 'https://candidat.francetravail.fr/offres/recherche/detail/S-PROCHE',
-              },
             }),
-            // Marseille : bien au-dela des 30 km declares.
             offre({
-              id: 'S-LOIN',
+              id: 'AP-MARSEILLE',
               entreprise: { nom: 'LOINTAINE INTERIM' },
+              romeCode: 'K1304',
+              romeLibelle: 'Aide a domicile / Aide a domicile',
               lieuTravail: {
                 libelle: '13 - Marseille',
                 commune: '13055',
@@ -754,92 +754,165 @@ describe('donnees publiques', () => {
     });
 
     it('exige une session', async () => {
-      await request(app.getHttpServer()).get('/api/offres/suggestions').expect(401);
+      await request(app.getHttpServer()).get('/api/offres/annonces').expect(401);
     });
 
-    it('ne retient que les offres du metier et du rayon', async () => {
-      const reponse = await avec(app, candidat).get('/api/offres/suggestions').expect(200);
-
-      expect(reponse.body.motif).toBeNull();
-      expect(reponse.body.suggestions.map((ligne: { id: string }) => ligne.id)).toEqual([
-        'S-PROCHE',
-      ]);
-      expect(reponse.body.suggestions[0].distanceKm).toBeLessThan(2);
+    it('reste fermee au personnel de l agence', async () => {
+      await avec(app, agence).get('/api/offres/annonces').expect(403);
     });
 
     /**
-     * Sur un import reel, quinze pour cent seulement des offres France Travail
-     * portent des coordonnees : la source ne geolocalise pas la majorite de ses
-     * annonces. S'en tenir a la distance ignorerait six offres sur sept, d'ou
-     * le repli sur le departement du candidat.
-     *
-     * Ces offres sortent sans distance, jamais avec une distance estimee : un
-     * centroide de commune affiche en kilometres passerait pour une mesure.
+     * Le cas voulu, et le plus important : tant que l'agence n'a pas valide le
+     * dossier, le marche reste ferme. La reponse n'est pas une erreur mais une
+     * liste vide et un motif — « pas encore » n'est pas un refus, et l'ecran
+     * doit pouvoir le dire plutot que de passer pour une panne.
      */
-    it('retient aussi les offres du departement, sans inventer de distance', async () => {
-      await prisma.offreCollectee.updateMany({
-        where: { id: 'S-PROCHE' },
-        data: { latitude: null, longitude: null },
-      });
-
-      const reponse = await avec(app, candidat).get('/api/offres/suggestions').expect(200);
-      const suggestion = reponse.body.suggestions.find(
-        (ligne: { id: string }) => ligne.id === 'S-PROCHE',
-      );
-
-      expect(suggestion).toBeDefined();
-      expect(suggestion.distanceKm).toBeNull();
-      expect(suggestion.departement).toBe('44');
-
-      // Marseille reste dehors : ni mesurable, ni dans le bon departement.
-      expect(reponse.body.suggestions.map((ligne: { id: string }) => ligne.id)).not.toContain(
-        'S-LOIN',
-      );
-
-      await prisma.offreCollectee.updateMany({
-        where: { id: 'S-PROCHE' },
-        data: { latitude: 47.2201, longitude: -1.5521 },
-      });
-    });
-
-    /**
-     * Obligations de licence : la source et le lien d'origine accompagnent
-     * l'offre partout ou elle est montree, derriere une session comme ailleurs.
-     */
-    it('cite la source et le lien vers l annonce d origine', async () => {
-      const reponse = await avec(app, candidat).get('/api/offres/suggestions').expect(200);
-      const suggestion = reponse.body.suggestions[0];
-
-      expect(suggestion.source).toBe('FRANCE_TRAVAIL');
-      expect(suggestion.urlOrigine).toBe(
-        'https://candidat.francetravail.fr/offres/recherche/detail/S-PROCHE',
-      );
-    });
-
-    /**
-     * Un encart muet ferait croire a une panne. Le motif dit au candidat ce
-     * qu'il peut y changer lui-meme.
-     */
-    it('explique pourquoi la liste est vide', async () => {
-      const jeu = await reinitialiser();
-      const session = await connecter(app, 'candidat.a@test.example');
-
-      const sansMetier = await avec(app, session).get('/api/offres/suggestions').expect(200);
-
-      expect(sansMetier.body.motif).toBe('AUCUN_METIER');
-      expect(sansMetier.body.suggestions).toHaveLength(0);
-
-      await prisma.qualificationCandidat.create({
-        data: { candidatId: jeu.candidatA, qualificationId: jeu.qualification },
-      });
+    it('reste fermee tant que le dossier n est pas valide', async () => {
       await prisma.candidat.update({
         where: { id: jeu.candidatA },
-        data: { latitude: null, longitude: null },
+        data: { statut: 'EN_VERIFICATION' },
       });
 
-      const sansAdresse = await avec(app, session).get('/api/offres/suggestions').expect(200);
+      const reponse = await avec(app, candidat).get('/api/offres/annonces').expect(200);
 
-      expect(sansAdresse.body.motif).toBe('ADRESSE_ABSENTE');
+      expect(reponse.body.motif).toBe('DOSSIER_NON_VALIDE');
+      expect(reponse.body.donnees).toHaveLength(0);
+      expect(reponse.body.total).toBe(0);
+
+      // Un identifiant devine ne doit pas contourner la porte.
+      await avec(app, candidat).get('/api/offres/annonces/AP-NANTES').expect(403);
+
+      await prisma.candidat.update({ where: { id: jeu.candidatA }, data: { statut: 'ACTIF' } });
+    });
+
+    /**
+     * Tout le marche, et pas une selection : le candidat a demande a voir ce qui
+     * se cherche. Marseille sort donc avec Nantes, alors que le rapprochement
+     * par distance l'aurait ecartee.
+     */
+    it('sert tout le catalogue au dossier valide', async () => {
+      const reponse = await avec(app, candidat).get('/api/offres/annonces').expect(200);
+
+      expect(reponse.body.motif).toBeNull();
+      expect(reponse.body.total).toBe(2);
+      expect(reponse.body.donnees.map((l: { id: string }) => l.id).sort()).toEqual([
+        'AP-MARSEILLE',
+        'AP-NANTES',
+      ]);
+    });
+
+    /**
+     * Le coeur de la decision produit. Exposer `urlOrigine` rouvrirait un chemin
+     * de candidature qu'on a choisi de fermer : le candidat lit l'annonce, puis
+     * vient parler de son projet a Releve.
+     */
+    it('n expose aucun chemin de candidature', async () => {
+      const liste = await avec(app, candidat).get('/api/offres/annonces').expect(200);
+      const detail = await avec(app, candidat).get('/api/offres/annonces/AP-NANTES').expect(200);
+
+      for (const corps of [liste.body, detail.body]) {
+        const texte = JSON.stringify(corps);
+
+        expect(texte).not.toContain('urlOrigine');
+        expect(texte).not.toContain('candidat.francetravail.fr');
+      }
+
+      expect(detail.body).not.toHaveProperty('urlOrigine');
+      // Valeur derivee pour le barometre : l'afficher a la place du titre de
+      // l'employeur denaturerait l'annonce.
+      expect(detail.body).not.toHaveProperty('intituleNormalise');
+    });
+
+    /** La source reste nommee : c'est ce qui rend le mot « partenaire » exact. */
+    it('nomme la source et restitue le titre de l employeur', async () => {
+      const reponse = await avec(app, candidat).get('/api/offres/annonces/AP-NANTES').expect(200);
+
+      expect(reponse.body.source).toBe('FRANCE_TRAVAIL');
+      expect(reponse.body.intitule).toBe('AIDE-SOIGNANT(E) - Interim (H/F)');
+      expect(reponse.body.description).toContain('EHPAD');
+      expect(reponse.body.actualiseeLe ?? reponse.body.publieeLe).toBeTruthy();
+    });
+
+    it('filtre par departement et par metier', async () => {
+      const parDepartement = await avec(app, candidat)
+        .get('/api/offres/annonces?departement=13')
+        .expect(200);
+      const parMetier = await avec(app, candidat)
+        .get('/api/offres/annonces?rome=J1501')
+        .expect(200);
+
+      expect(parDepartement.body.donnees.map((l: { id: string }) => l.id)).toEqual([
+        'AP-MARSEILLE',
+      ]);
+      expect(parMetier.body.donnees.map((l: { id: string }) => l.id)).toEqual(['AP-NANTES']);
+    });
+
+    /**
+     * La case « dans mon rayon » est le seul filtre geographique, et elle reste
+     * decochee par defaut : le catalogue entier est ce qu'on a promis.
+     */
+    it('resserre sur le rayon seulement quand on le demande', async () => {
+      await prisma.candidat.update({ where: { id: jeu.candidatA }, data: { rayonKm: 30 } });
+
+      const tout = await avec(app, candidat).get('/api/offres/annonces').expect(200);
+      const proche = await avec(app, candidat)
+        .get('/api/offres/annonces?monRayon=true')
+        .expect(200);
+
+      expect(tout.body.total).toBe(2);
+      expect(proche.body.total).toBe(1);
+      expect(proche.body.donnees[0].id).toBe('AP-NANTES');
+    });
+
+    /**
+     * Regression. Une chaine de requete ne transporte que du texte, et
+     * `Boolean('false')` vaut `true` : avec `z.coerce.boolean()`, le filtre du
+     * rayon s'appliquait en permanence. Le catalogue tombait de 2 020 annonces a
+     * 34 sans qu'aucune erreur ne le signale.
+     */
+    it('lit monRayon=false comme un faux, pas comme une chaine non vide', async () => {
+      const explicite = await avec(app, candidat)
+        .get('/api/offres/annonces?monRayon=false')
+        .expect(200);
+      const absent = await avec(app, candidat).get('/api/offres/annonces').expect(200);
+
+      expect(explicite.body.total).toBe(absent.body.total);
+      expect(explicite.body.total).toBe(2);
+    });
+
+    it('classe les plus proches en tete et mesure la distance', async () => {
+      const reponse = await avec(app, candidat).get('/api/offres/annonces?tri=PROCHES').expect(200);
+
+      expect(reponse.body.donnees[0].id).toBe('AP-NANTES');
+      expect(reponse.body.donnees[0].distanceKm).toBeLessThan(2);
+      expect(reponse.body.donnees[0].distanceApprochee).toBe(false);
+    });
+
+    it('construit les menus sur les annonces reellement en ligne', async () => {
+      const reponse = await avec(app, candidat).get('/api/offres/annonces/options').expect(200);
+
+      expect(reponse.body.total).toBe(2);
+      expect(reponse.body.departements).toEqual([
+        { code: '13', annonces: 1 },
+        { code: '44', annonces: 1 },
+      ]);
+      expect(reponse.body.metiers.map((m: { romeCode: string }) => m.romeCode).sort()).toEqual([
+        'J1501',
+        'K1304',
+      ]);
+    });
+
+    it('ne sert plus une annonce retiree chez la source', async () => {
+      await prisma.offreCollectee.update({
+        where: { id: 'AP-MARSEILLE' },
+        data: { statut: 'EXPIREE', expireeLe: new Date() },
+      });
+
+      await avec(app, candidat).get('/api/offres/annonces/AP-MARSEILLE').expect(404);
+
+      const liste = await avec(app, candidat).get('/api/offres/annonces').expect(200);
+
+      expect(liste.body.total).toBe(1);
     });
   });
 });

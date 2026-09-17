@@ -1,17 +1,19 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, ForbiddenException, Get, Param, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import {
+  annoncesQuerySchema,
   missionsVitrineQuerySchema,
-  suggestionsQuerySchema,
+  type AnnoncePartenaire,
+  type AnnoncePartenaireDetail,
+  type AnnoncesQuery,
   type MissionsVitrineQuery,
   type MissionVitrine,
+  type MotifAnnonces,
+  type OptionsAnnonces,
   type OptionsVitrine,
   type PageResultat,
-  type SuggestionsMarche,
-  type SuggestionsQuery,
   type UtilisateurSession,
 } from '@releve/shared';
-import { ForbiddenException } from '@nestjs/common';
 import { Public, Roles, UtilisateurCourant } from '../auth/auth.decorateurs';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { VitrineService } from './vitrine.service';
@@ -19,24 +21,39 @@ import { VitrineService } from './vitrine.service';
 /**
  * Les offres d'emploi telles que le site les presente.
  *
- * Deux routes ouvertes et une fermee, et la frontiere entre elles est la
- * distinction la plus importante de ce controleur.
+ * Deux familles de routes, et la frontiere entre elles est la distinction la
+ * plus importante de ce controleur.
  *
- * Ce qui est ouvert, ce sont **nos** missions : celles que les etablissements
- * deposent sur Releve, sur lesquelles on postule ici, et dont l'agence recoit
- * les candidatures.
+ * **Ouvert a tous** : nos missions. Celles que les etablissements deposent sur
+ * Releve, sur lesquelles on postule ici, et dont l'agence recoit les
+ * candidatures.
  *
- * Ce qui est ferme, ce sont les offres collectees sur France Travail. Elles ne
- * sont plus republiees au tout-venant : elles servent a suggerer des pistes a
- * un candidat identifie, avec leur source citee et un lien vers l'annonce
- * d'origine. Les melanger aux missions Releve ferait croire a un candidat qu'il
- * postule ici, et denaturerait des annonces qui appartiennent a d'autres
- * employeurs.
+ * **Reserve aux candidats au dossier valide** : les annonces partenaire,
+ * collectees sur France Travail. Elles ne sont jamais republiees au
+ * tout-venant, et surtout **aucune route n'en donne le chemin de
+ * candidature** — pas meme le lien vers la source. Ces postes appartiennent a
+ * d'autres employeurs ; Releve les montre pour que le candidat voie ce que
+ * cherche le secteur, puis vienne en parler a son charge de recrutement.
  */
 @ApiTags('offres')
 @Controller('offres')
 export class OffresController {
   constructor(private readonly vitrine: VitrineService) {}
+
+  /**
+   * La fiche candidat rattachee au compte.
+   *
+   * Le role `CANDIDAT` seul ne suffit pas : un compte peut porter le role sans
+   * `candidatId` si le rattachement a ete defait cote agence, et la requete
+   * n'aurait alors aucun sujet.
+   */
+  private candidatDe(session: UtilisateurSession): string {
+    if (!session.candidatId) {
+      throw new ForbiddenException('Ce compte n est rattache a aucune fiche candidat');
+    }
+
+    return session.candidatId;
+  }
 
   // Declaree avant toute route a parametre : « options » serait sinon lu comme
   // un identifiant.
@@ -48,26 +65,60 @@ export class OffresController {
   }
 
   /**
-   * Suggestions issues du marche, pour le candidat connecte.
+   * Menus deroulants du catalogue partenaire.
    *
-   * Reservee au candidat, et pas seulement par prudence : sans son metier et
-   * son adresse, la question n'a pas de reponse — il n'y a ni ROME a croiser ni
-   * point depuis lequel mesurer une distance.
+   * Declaree avant `annonces/:id`, sinon « options » serait lu comme un
+   * identifiant d'annonce.
    */
-  @Get('suggestions')
+  @Get('annonces/options')
   @Roles('CANDIDAT')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Offres du marche proches du profil, par metier et distance' })
-  @ApiQuery({ name: 'limite', required: false, type: Number })
-  suggestions(
-    @Query(new ZodValidationPipe(suggestionsQuerySchema)) query: SuggestionsQuery,
-    @UtilisateurCourant() session: UtilisateurSession,
-  ): Promise<SuggestionsMarche> {
-    if (!session.candidatId) {
-      throw new ForbiddenException('Ce compte n est rattache a aucune fiche candidat');
-    }
+  @ApiOperation({ summary: 'Departements et metiers presents dans le catalogue partenaire' })
+  optionsAnnonces(@UtilisateurCourant() session: UtilisateurSession): Promise<OptionsAnnonces> {
+    return this.vitrine.optionsAnnonces(this.candidatDe(session));
+  }
 
-    return this.vitrine.suggestions(session.candidatId, query.limite);
+  /**
+   * Catalogue des annonces partenaire.
+   *
+   * Tout le marche collecte sur France Travail, reserve aux candidats dont
+   * l'agence a valide le dossier. Aucun chemin de candidature n'en sort : ces
+   * postes appartiennent a d'autres employeurs, et Releve ne recoit pas de
+   * candidature pour eux. Un dossier non valide recoit une liste vide et le
+   * motif `DOSSIER_NON_VALIDE`, pas une erreur — « pas encore » n'est pas un
+   * refus, et l'ecran doit pouvoir le dire.
+   */
+  @Get('annonces')
+  @Roles('CANDIDAT')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Annonces partenaire, pour un candidat au dossier valide' })
+  @ApiQuery({ name: 'recherche', required: false })
+  @ApiQuery({ name: 'departement', required: false })
+  @ApiQuery({ name: 'rome', required: false })
+  @ApiQuery({ name: 'monRayon', required: false, type: Boolean })
+  @ApiQuery({ name: 'tri', required: false, enum: ['PROCHES', 'RECENTES', 'TAUX_DECROISSANT'] })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limite', required: false, type: Number })
+  annonces(
+    @Query(new ZodValidationPipe(annoncesQuerySchema)) query: AnnoncesQuery,
+    @UtilisateurCourant() session: UtilisateurSession,
+  ): Promise<PageResultat<AnnoncePartenaire> & { motif: MotifAnnonces | null }> {
+    return this.vitrine.annonces(this.candidatDe(session), query);
+  }
+
+  /**
+   * L'identifiant est celui de la source (« 213YHHM »), pas un UUID : pas de
+   * `ParseUUIDPipe` ici, il rejetterait toutes les annonces.
+   */
+  @Get('annonces/:id')
+  @Roles('CANDIDAT')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Detail d'une annonce partenaire" })
+  annonce(
+    @Param('id') id: string,
+    @UtilisateurCourant() session: UtilisateurSession,
+  ): Promise<AnnoncePartenaireDetail> {
+    return this.vitrine.annonce(this.candidatDe(session), id);
   }
 
   @Get()
