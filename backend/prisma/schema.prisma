@@ -53,6 +53,7 @@ enum StatutReglementaire {
 
 enum TypeClient {
   SAAD
+  ETABLISSEMENT
 }
 
 enum TypeLieu {
@@ -761,4 +762,25 @@ model OffreCollectee {
   @@index([publieeLe])
   @@index([empreinte])
   @@map("offre_collectee")
+}
+
+model Inscription {
+  id         String   @id @default(uuid())
+  email      String   @unique
+  motDePasse String   // Stocké sous forme de hash (crypté), jamais en clair !
+  prenom     String
+  nom        String
+  birthDate  DateTime // Ou String, selon comment ton backend gère la date
+  telephone  String
+  adresse    String
+  codePostal String
+  ville      String
+  
+  statut     String   @default("EN_ATTENTE") // par exemple: EN_ATTENTE, VALIDEE, REFUSEE
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Si tu veux lier cette inscription à une Agence existante :
+  // agenceId String?
+  // agence   Agence? @relation(fields: [agenceId], references: [id])
 }

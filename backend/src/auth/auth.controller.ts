@@ -40,9 +40,6 @@ export class AuthController {
     private readonly reinitialisation: ReinitialisationService,
   ) {}
 
-  // Plafond serre : une personne qui se connecte le fait une ou deux fois, pas
-  // dix. C'est la premiere ligne contre le bourrinage depuis une seule source ;
-  // le ralentissement par compte prend le relais sur une attaque distribuee.
   @Public()
   @Throttle({ connexion: { limit: 10, ttl: 60_000 } })
   @Post('connexion')
@@ -54,23 +51,6 @@ export class AuthController {
     return this.auth.connexion(donnees);
   }
 
-  /*
-   * Le seul parcours d'inscription public.
-   *
-   * Les ESMS n'y figurent pas : l'agence les cree depuis le back-office, apres
-   * avoir vu leur declaration SAP, leur agrement ou leur arrete d'autorisation.
-   * Un statut reglementaire auto-declare que personne ne controle ne vaudrait
-   * rien, et c'est lui qui autorise une structure a recevoir des intervenants.
-   *
-   * Plafond bien plus serre que la connexion : on s'inscrit une fois. Un debit
-   * eleve sur cette route n'est pas un utilisateur maladroit, c'est quelqu'un
-   * qui remplit la base de fiches bidon.
-   *
-   * Aucune session n'est ouverte ici, et rien n'est renvoye qu'une confirmation
-   * d'envoi. L'acces passe par le lien recu a l'adresse saisie : c'est ce qui
-   * empeche d'ouvrir un compte au nom de quelqu'un d'autre, sur une plateforme
-   * ou l'adresse sert a la fois d'identifiant et de canal de contact.
-   */
   @Public()
   @Throttle({ connexion: { limit: 5, ttl: 60_000 } })
   @Post('inscription/interimaire')
@@ -82,11 +62,17 @@ export class AuthController {
     return this.inscriptions.interimaire(donnees);
   }
 
-  /**
-   * Confirmation de l'adresse : le seul endroit ou une inscription devient une
-   * session. Plafond large, parce qu'un lien ouvert depuis une messagerie peut
-   * etre prefetche par le client mail avant que la personne ne clique.
-   */
+  @Public()
+  @Throttle({ connexion: { limit: 5, ttl: 60_000 } })
+  @Post('inscription/client')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Inscrire un etablissement client' })
+  inscrireClient(
+    @Body() donnees: any,
+  ): Promise<ReponseInscription> {
+    return this.inscriptions.client(donnees);
+  }
+
   @Public()
   @Throttle({ connexion: { limit: 20, ttl: 60_000 } })
   @Post('verification/confirmer')
@@ -98,11 +84,6 @@ export class AuthController {
     return this.verification.confirmer(donnees.jeton);
   }
 
-  /**
-   * Renvoi du lien. 204 systematiquement, y compris pour une adresse inconnue
-   * ou deja confirmee : une reponse qui varierait ferait de ce formulaire
-   * public un testeur d'adresses.
-   */
   @Public()
   @Throttle({ connexion: { limit: 3, ttl: 60_000 } })
   @Post('verification/renvoyer')
@@ -114,15 +95,6 @@ export class AuthController {
     return this.verification.renvoyer(donnees.email);
   }
 
-  /**
-   * Demande d'un lien de reinitialisation.
-   *
-   * 204 systematiquement, adresse connue ou non : repondre differemment ferait
-   * de ce formulaire public un annuaire des inscrits — et ici, etre inscrit
-   * revele qu'on cherche des missions d'aide a domicile. Plafond tres serre
-   * pour la meme raison : trois essais par minute ne genent personne de bonne
-   * foi, et rendent le balayage d'adresses impraticable.
-   */
   @Public()
   @Throttle({ connexion: { limit: 3, ttl: 60_000 } })
   @Post('mot-de-passe/oublie')
@@ -134,11 +106,6 @@ export class AuthController {
     await this.reinitialisation.demander(donnees.email);
   }
 
-  /**
-   * Pose du nouveau mot de passe. Aucune session n'est ouverte : la personne
-   * vient de choisir un mot de passe, la faire le saisir a l'ecran suivant
-   * verifie qu'il est bien celui qu'elle croit.
-   */
   @Public()
   @Throttle({ connexion: { limit: 10, ttl: 60_000 } })
   @Post('mot-de-passe/reinitialiser')
@@ -162,11 +129,6 @@ export class AuthController {
     return this.auth.rafraichir(donnees.jetonRafraichissement);
   }
 
-  /**
-   * Public au sens de la garde JWT : a la deconnexion, le jeton d'acces est
-   * souvent deja expire. C'est la possession du jeton de rafraichissement qui
-   * fait foi, et le revoquer n'est de toute facon pas une operation sensible.
-   */
   @Public()
   @Post('deconnexion')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -177,8 +139,6 @@ export class AuthController {
     return this.auth.deconnexion(donnees.jetonRafraichissement);
   }
 
-  // Accessible a tout compte authentifie, quel que soit son role : c'est le
-  // seul endroit ou un client ou un candidat agit sur son propre compte.
   @Post('mot-de-passe')
   @Throttle({ connexion: { limit: 10, ttl: 60_000 } })
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -198,11 +158,6 @@ export class AuthController {
     return utilisateur;
   }
 
-  /**
-   * Ce que le compte voit de lui-meme : sa fiche et son etat de validation.
-   * C'est la porte d'entree des deux espaces externes, la ou le back-office
-   * ouvre sur le vivier.
-   */
   @Get('mon-espace')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Fiche rattachee au compte connecte et son etat' })

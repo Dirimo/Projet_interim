@@ -47,7 +47,13 @@ const avecRelations = Prisma.validator<Prisma.MissionDefaultArgs>()({
       },
     },
     qualificationRequise: { select: { id: true, code: true, libelle: true } },
-    _count: { select: { propositions: { where: { statut: 'ACCEPTEE_CANDIDAT' } } } },
+    _count: {
+      select: {
+        propositions: {
+          where: { statut: 'ACCEPTEE_CANDIDAT' },
+        },
+      },
+    },
   },
 });
 
@@ -146,9 +152,17 @@ export class MissionsService {
     private readonly geocodage: GeocodageService,
   ) {}
 
-  private resume(mission: MissionChargee, depuis?: PointCandidat): MissionResume {
+  private resume(
+    mission: MissionChargee,
+    depuis?: PointCandidat,
+  ): MissionResume {
     const distance = depuis
-      ? distanceKm(depuis.latitude, depuis.longitude, mission.lieu.latitude, mission.lieu.longitude)
+      ? distanceKm(
+          depuis.latitude,
+          depuis.longitude,
+          mission.lieu.latitude,
+          mission.lieu.longitude,
+        )
       : null;
 
     return {
@@ -167,18 +181,27 @@ export class MissionsService {
       dateFin: jourIso(mission.dateFin),
       heureDebut: mission.heureDebut,
       heureFin: mission.heureFin,
-      dureeHeures: dureeHeures(mission.heureDebut, mission.heureFin),
+      dureeHeures: dureeHeures(
+        mission.heureDebut,
+        mission.heureFin,
+      ),
       travailNuit: mission.travailNuit,
-      tauxHoraire: mission.tauxHoraire ? Number(mission.tauxHoraire) : null,
+      tauxHoraire: mission.tauxHoraire
+        ? Number(mission.tauxHoraire)
+        : null,
       motifRecours: mission.motifRecours,
       candidaturesEnAttente: mission._count.propositions,
       candidatRetenuId: mission.candidatRetenuId,
       distanceKm: distance,
+
       // La mission reste visible au-dela du rayon, et le dit. La masquer
       // priverait la personne de l'information qui lui permettrait d'agir :
       // elargir son rayon de cinq kilometres lui ouvrirait peut-etre dix
       // missions, et une liste vide ressemble a une panne.
-      horsRayon: depuis === undefined ? null : dansLeRayon(distance, depuis.rayonKm) === false,
+      horsRayon:
+        depuis === undefined
+          ? null
+          : dansLeRayon(distance, depuis.rayonKm) === false,
     };
   }
 
@@ -188,14 +211,20 @@ export class MissionsService {
    * Une requete par mission couterait autant d'allers-retours que de cartes
    * affichees, pour une donnee qui ne change pas d'une ligne a l'autre.
    */
-  private async positionCandidat(session: UtilisateurSession): Promise<PointCandidat | undefined> {
+  private async positionCandidat(
+    session: UtilisateurSession,
+  ): Promise<PointCandidat | undefined> {
     if (!session.candidatId) {
       return undefined;
     }
 
     const fiche = await this.prisma.candidat.findUnique({
       where: { id: session.candidatId },
-      select: { latitude: true, longitude: true, rayonKm: true },
+      select: {
+        latitude: true,
+        longitude: true,
+        rayonKm: true,
+      },
     });
 
     return fiche ?? undefined;
@@ -213,14 +242,23 @@ export class MissionsService {
     mission: MissionChargee,
     candidatId: string | null,
   ): Promise<PrerequisMission[]> {
-    const libelleDiplome = `Diplome requis : ${mission.qualificationRequise.code}`;
+    const libelleDiplome =
+      `Diplome requis : ${mission.qualificationRequise.code}`;
 
     if (!candidatId) {
-      return [{ libelle: libelleDiplome, verifie: false }];
+      return [
+        {
+          libelle: libelleDiplome,
+          verifie: false,
+        },
+      ];
     }
 
     const [detient, candidat] = await Promise.all([
-      this.detientQualification(candidatId, mission.qualificationRequiseId),
+      this.detientQualification(
+        candidatId,
+        mission.qualificationRequiseId,
+      ),
       this.prisma.candidat.findUnique({
         where: { id: candidatId },
         select: { statut: true },
@@ -228,18 +266,36 @@ export class MissionsService {
     ]);
 
     return [
-      { libelle: libelleDiplome, verifie: detient },
-      { libelle: 'Profil valide par l agence', verifie: candidat?.statut === 'ACTIF' },
+      {
+        libelle: libelleDiplome,
+        verifie: detient,
+      },
+      {
+        libelle: 'Profil valide par l agence',
+        verifie: candidat?.statut === 'ACTIF',
+      },
     ];
   }
 
-  async detientQualification(candidatId: string, qualificationId: string): Promise<boolean> {
+  async detientQualification(
+    candidatId: string,
+    qualificationId: string,
+  ): Promise<boolean> {
     const maintenant = new Date();
 
-    const lien = await this.prisma.qualificationCandidat.findUnique({
-      where: { candidatId_qualificationId: { candidatId, qualificationId } },
-      select: { verifieeLe: true, expireLe: true },
-    });
+    const lien =
+      await this.prisma.qualificationCandidat.findUnique({
+        where: {
+          candidatId_qualificationId: {
+            candidatId,
+            qualificationId,
+          },
+        },
+        select: {
+          verifieeLe: true,
+          expireLe: true,
+        },
+      });
 
     if (!lien?.verifieeLe) {
       return false;
@@ -261,11 +317,18 @@ export class MissionsService {
     const cible = session.clientId ?? clientId;
 
     if (!cible) {
-      throw new BadRequestException('Preciser le client pour lequel publier');
+      throw new BadRequestException(
+        'Preciser le client pour lequel publier',
+      );
     }
 
     const client = await this.prisma.client.findFirst({
-      where: { id: cible, ...(session.agenceId ? { agenceId: session.agenceId } : {}) },
+      where: {
+        id: cible,
+        ...(session.agenceId
+          ? { agenceId: session.agenceId }
+          : {}),
+      },
       select: { id: true },
     });
 
@@ -273,19 +336,34 @@ export class MissionsService {
       throw new NotFoundException('Client introuvable');
     }
 
-    const [lieux, qualifications] = await this.prisma.$transaction([
-      this.prisma.lieuIntervention.findMany({
-        where: { clientId: client.id },
-        select: { id: true, libelle: true, ville: true, codePostal: true },
-        orderBy: { libelle: 'asc' },
-      }),
-      this.prisma.qualification.findMany({
-        select: { id: true, code: true, libelle: true, romeCode: true },
-        orderBy: { code: 'asc' },
-      }),
-    ]);
+    const [lieux, qualifications] =
+      await this.prisma.$transaction([
+        this.prisma.lieuIntervention.findMany({
+          where: { clientId: client.id },
+          select: {
+            id: true,
+            libelle: true,
+            ville: true,
+            codePostal: true,
+          },
+          orderBy: { libelle: 'asc' },
+        }),
 
-    return { lieux, qualifications };
+        this.prisma.qualification.findMany({
+          select: {
+            id: true,
+            code: true,
+            libelle: true,
+            romeCode: true,
+          },
+          orderBy: { code: 'asc' },
+        }),
+      ]);
+
+    return {
+      lieux,
+      qualifications,
+    };
   }
 
   async lister(
@@ -295,22 +373,48 @@ export class MissionsService {
     const where: Prisma.MissionWhereInput = {
       AND: [
         await porteeLecture(session, this.prisma),
-        ...(query.statut ? [{ statut: query.statut }] : []),
-        ...(query.depuis ? [{ dateDebut: { gte: new Date(query.depuis) } }] : []),
-        ...(query.jusqua ? [{ dateDebut: { lte: new Date(query.jusqua) } }] : []),
+        ...(query.statut
+          ? [{ statut: query.statut }]
+          : []),
+        ...(query.depuis
+          ? [{ dateDebut: { gte: new Date(query.depuis) } }]
+          : []),
+        ...(query.jusqua
+          ? [{ dateDebut: { lte: new Date(query.jusqua) } }]
+          : []),
         ...(query.recherche
           ? [
               {
                 OR: [
-                  { reference: { contains: query.recherche, mode: 'insensitive' as const } },
                   {
-                    client: {
-                      raisonSociale: { contains: query.recherche, mode: 'insensitive' as const },
+                    reference: {
+                      contains: query.recherche,
+                      mode: 'insensitive' as const,
                     },
                   },
-                  { lieu: { ville: { contains: query.recherche, mode: 'insensitive' as const } } },
                   {
-                    lieu: { libelle: { contains: query.recherche, mode: 'insensitive' as const } },
+                    client: {
+                      raisonSociale: {
+                        contains: query.recherche,
+                        mode: 'insensitive' as const,
+                      },
+                    },
+                  },
+                  {
+                    lieu: {
+                      ville: {
+                        contains: query.recherche,
+                        mode: 'insensitive' as const,
+                      },
+                    },
+                  },
+                  {
+                    lieu: {
+                      libelle: {
+                        contains: query.recherche,
+                        mode: 'insensitive' as const,
+                      },
+                    },
                   },
                 ],
               },
@@ -319,30 +423,45 @@ export class MissionsService {
       ],
     };
 
-    const [total, missions] = await this.prisma.$transaction([
-      this.prisma.mission.count({ where }),
-      this.prisma.mission.findMany({
-        where,
-        ...avecRelations,
-        orderBy: [{ dateDebut: 'asc' }, { heureDebut: 'asc' }],
-        skip: (query.page - 1) * query.limite,
-        take: query.limite,
-      }),
-    ]);
+    const [total, missions] =
+      await this.prisma.$transaction([
+        this.prisma.mission.count({ where }),
+
+        this.prisma.mission.findMany({
+          where,
+          ...avecRelations,
+          orderBy: [
+            { dateDebut: 'asc' },
+            { heureDebut: 'asc' },
+          ],
+          skip: (query.page - 1) * query.limite,
+          take: query.limite,
+        }),
+      ]);
 
     const depuis = await this.positionCandidat(session);
 
     return {
-      donnees: missions.map((mission) => this.resume(mission, depuis)),
+      donnees: missions.map((mission) =>
+        this.resume(mission, depuis),
+      ),
       total,
       page: query.page,
       limite: query.limite,
     };
   }
 
-  async detail(id: string, session: UtilisateurSession): Promise<MissionDetail> {
+  async detail(
+    id: string,
+    session: UtilisateurSession,
+  ): Promise<MissionDetail> {
     const mission = await this.prisma.mission.findFirst({
-      where: { AND: [{ id }, await porteeLecture(session, this.prisma)] },
+      where: {
+        AND: [
+          { id },
+          await porteeLecture(session, this.prisma),
+        ],
+      },
       ...avecRelations,
     });
 
@@ -355,7 +474,12 @@ export class MissionsService {
     const candidatId = session.candidatId ?? null;
 
     const dejaPostule = candidatId
-      ? (await this.prisma.proposition.count({ where: { missionId: id, candidatId } })) > 0
+      ? (await this.prisma.proposition.count({
+          where: {
+            missionId: id,
+            candidatId,
+          },
+        })) > 0
       : false;
 
     // Les consignes d'acces ne concernent que ceux qui doivent entrer : le
@@ -364,15 +488,27 @@ export class MissionsService {
     const peutVoirConsignes =
       !!session.agenceId ||
       !!session.clientId ||
-      (candidatId !== null && mission.candidatRetenuId === candidatId);
+      (candidatId !== null &&
+        mission.candidatRetenuId === candidatId);
 
     return {
-      ...this.resume(mission, await this.positionCandidat(session)),
+      ...this.resume(
+        mission,
+        await this.positionCandidat(session),
+      ),
       description: mission.description,
-      coefficient: mission.coefficient ? Number(mission.coefficient) : null,
-      adresse: `${mission.lieu.adresse}, ${mission.lieu.codePostal} ${mission.lieu.ville}`,
-      consignes: peutVoirConsignes ? mission.lieu.consignes : null,
-      prerequis: await this.prerequis(mission, candidatId),
+      coefficient: mission.coefficient
+        ? Number(mission.coefficient)
+        : null,
+      adresse:
+        `${mission.lieu.adresse}, ${mission.lieu.codePostal} ${mission.lieu.ville}`,
+      consignes: peutVoirConsignes
+        ? mission.lieu.consignes
+        : null,
+      prerequis: await this.prerequis(
+        mission,
+        candidatId,
+      ),
       dejaPostule,
     };
   }
@@ -383,17 +519,31 @@ export class MissionsService {
    * Elle est calculee dans la transaction de creation pour que deux missions
    * creees en meme temps ne se disputent pas le meme numero.
    */
-  private async referenceSuivante(tx: Prisma.TransactionClient): Promise<string> {
+  private async referenceSuivante(
+    tx: Prisma.TransactionClient,
+  ): Promise<string> {
     const annee = new Date().getFullYear();
     const prefixe = `M-${annee}-`;
 
     const derniere = await tx.mission.findFirst({
-      where: { reference: { startsWith: prefixe } },
-      orderBy: { reference: 'desc' },
-      select: { reference: true },
+      where: {
+        reference: {
+          startsWith: prefixe,
+        },
+      },
+      orderBy: {
+        reference: 'desc',
+      },
+      select: {
+        reference: true,
+      },
     });
 
-    const rang = derniere ? Number(derniere.reference.slice(prefixe.length)) + 1 : 1;
+    const rang = derniere
+      ? Number(
+          derniere.reference.slice(prefixe.length),
+        ) + 1
+      : 1;
 
     return `${prefixe}${String(rang).padStart(4, '0')}`;
   }
@@ -423,11 +573,18 @@ export class MissionsService {
     codePostal: string;
     ville: string;
   }): Promise<void> {
-    if (lieu.latitude !== null && lieu.longitude !== null) {
+    if (
+      lieu.latitude !== null &&
+      lieu.longitude !== null
+    ) {
       return;
     }
 
-    const point = await this.geocodage.situer('lieu_intervention', lieu.id, lieu);
+    const point = await this.geocodage.situer(
+      'lieu_intervention',
+      lieu.id,
+      lieu,
+    );
 
     if (point) {
       return;
@@ -443,25 +600,39 @@ export class MissionsService {
     );
   }
 
-  async creer(donnees: MissionCreate, session: UtilisateurSession): Promise<MissionResume> {
+  async creer(
+    donnees: MissionCreate,
+    session: UtilisateurSession,
+  ): Promise<MissionResume> {
     // Un client publie toujours pour lui-meme : son identifiant vient du jeton,
     // jamais du corps de la requete, sinon il publierait chez un concurrent.
-    const clientId = session.clientId ?? donnees.clientId;
+    const clientId =
+      session.clientId ?? donnees.clientId;
 
     if (!clientId) {
-      throw new BadRequestException('Le client de la mission est obligatoire');
+      throw new BadRequestException(
+        'Le client de la mission est obligatoire',
+      );
     }
 
     const client = await this.prisma.client.findFirst({
       where: {
         id: clientId,
-        ...(session.agenceId ? { agenceId: session.agenceId } : {}),
+        ...(session.agenceId
+          ? { agenceId: session.agenceId }
+          : {}),
       },
-      select: { id: true, agenceId: true, actif: true },
+      select: {
+        id: true,
+        agenceId: true,
+        actif: true,
+      },
     });
 
     if (!client) {
-      throw new NotFoundException('Client introuvable');
+      throw new NotFoundException(
+        'Client introuvable',
+      );
     }
 
     if (!client.actif) {
@@ -470,60 +641,87 @@ export class MissionsService {
       );
     }
 
-    const lieu = await this.prisma.lieuIntervention.findFirst({
-      where: { id: donnees.lieuId, clientId: client.id },
-      select: {
-        id: true,
-        latitude: true,
-        longitude: true,
-        adresse: true,
-        codePostal: true,
-        ville: true,
-      },
-    });
+    const lieu =
+      await this.prisma.lieuIntervention.findFirst({
+        where: {
+          id: donnees.lieuId,
+          clientId: client.id,
+        },
+        select: {
+          id: true,
+          latitude: true,
+          longitude: true,
+          adresse: true,
+          codePostal: true,
+          ville: true,
+        },
+      });
 
     if (!lieu) {
-      throw new NotFoundException('Lieu introuvable pour ce client');
+      throw new NotFoundException(
+        'Lieu introuvable pour ce client',
+      );
     }
 
     await this.exigerLieuLocalise(lieu);
 
-    const qualification = await this.prisma.qualification.findUnique({
-      where: { id: donnees.qualificationRequiseId },
-      select: { id: true },
-    });
+    const qualification =
+      await this.prisma.qualification.findUnique({
+        where: {
+          id: donnees.qualificationRequiseId,
+        },
+        select: {
+          id: true,
+        },
+      });
 
     if (!qualification) {
-      throw new NotFoundException('Qualification introuvable');
+      throw new NotFoundException(
+        'Qualification introuvable',
+      );
     }
 
-    const mission = await this.prisma.$transaction(async (tx) => {
-      const reference = await this.referenceSuivante(tx);
+    const mission =
+      await this.prisma.$transaction(async (tx) => {
+        const reference =
+          await this.referenceSuivante(tx);
 
-      return tx.mission.create({
-        data: {
-          reference,
-          agenceId: client.agenceId,
-          clientId: client.id,
-          lieuId: donnees.lieuId,
-          qualificationRequiseId: donnees.qualificationRequiseId,
-          // Une mission deposee par un client est publiee d'emblee : la faire
-          // naitre en brouillon obligerait l'agence a la republier a la main,
-          // alors que le besoin est urgent par nature.
-          statut: 'PUBLIEE',
-          dateDebut: new Date(donnees.dateDebut),
-          dateFin: new Date(donnees.dateFin),
-          heureDebut: donnees.heureDebut,
-          heureFin: donnees.heureFin,
-          travailNuit: franchitMinuit(donnees.heureDebut, donnees.heureFin),
-          motifRecours: donnees.motifRecours,
-          description: donnees.description ?? null,
-          tauxHoraire: donnees.tauxHoraire ?? null,
-          coefficient: donnees.coefficient ?? null,
-        },
-        ...avecRelations,
+        const mission = await tx.mission.create({
+  data: {
+    reference,
+    agenceId: client.agenceId,
+    clientId: client.id,
+    lieuId: donnees.lieuId,
+    qualificationRequiseId:
+      donnees.qualificationRequiseId,
+
+    statut: 'PUBLIEE',
+
+    dateDebut: new Date(donnees.dateDebut),
+    dateFin: new Date(donnees.dateFin),
+    heureDebut: donnees.heureDebut,
+    heureFin: donnees.heureFin,
+    travailNuit: franchitMinuit(
+      donnees.heureDebut,
+      donnees.heureFin,
+    ),
+    motifRecours: donnees.motifRecours,
+    description: donnees.description ?? null,
+    tauxHoraire: donnees.tauxHoraire ?? null,
+    coefficient: donnees.coefficient ?? null,
+  },
+  ...avecRelations,
+});
+
+await tx.evenementMission.create({
+  data: {
+    missionId: mission.id,
+    type: 'MISSION_PUBLIEE',
+  },
+});
+
+return mission;
       });
-    });
 
     return this.resume(mission);
   }
@@ -533,74 +731,190 @@ export class MissionsService {
     donnees: MissionUpdate,
     session: UtilisateurSession,
   ): Promise<MissionResume> {
-    const existante = await this.prisma.mission.findFirst({
-      where: { AND: [{ id }, await porteeLecture(session, this.prisma)] },
-      select: { id: true, statut: true, clientId: true },
-    });
+    const existante =
+      await this.prisma.mission.findFirst({
+        where: {
+          AND: [
+            { id },
+            await porteeLecture(
+              session,
+              this.prisma,
+            ),
+          ],
+        },
+        select: {
+          id: true,
+          statut: true,
+          clientId: true,
+        },
+      });
 
     if (!existante) {
-      throw new NotFoundException('Mission introuvable');
+      throw new NotFoundException(
+        'Mission introuvable',
+      );
     }
 
-    if ((ETATS_ENGAGES as readonly string[]).includes(existante.statut)) {
+    if (
+      (ETATS_ENGAGES as readonly string[]).includes(
+        existante.statut,
+      )
+    ) {
       throw new ForbiddenException(
         'Cette mission est pourvue : elle ne se modifie plus, elle s annule',
       );
     }
 
-    const heureDebut = donnees.heureDebut;
-    const heureFin = donnees.heureFin;
+    const heureDebut =
+      donnees.heureDebut;
+    const heureFin =
+      donnees.heureFin;
 
-    const mission = await this.prisma.mission.update({
-      where: { id },
-      data: {
-        ...(donnees.lieuId ? { lieuId: donnees.lieuId } : {}),
-        ...(donnees.qualificationRequiseId
-          ? { qualificationRequiseId: donnees.qualificationRequiseId }
-          : {}),
-        ...(donnees.dateDebut ? { dateDebut: new Date(donnees.dateDebut) } : {}),
-        ...(donnees.dateFin ? { dateFin: new Date(donnees.dateFin) } : {}),
-        ...(heureDebut ? { heureDebut } : {}),
-        ...(heureFin ? { heureFin } : {}),
-        ...(heureDebut && heureFin ? { travailNuit: franchitMinuit(heureDebut, heureFin) } : {}),
-        ...(donnees.motifRecours ? { motifRecours: donnees.motifRecours } : {}),
-        ...(donnees.description === undefined ? {} : { description: donnees.description }),
-        ...(donnees.tauxHoraire === undefined ? {} : { tauxHoraire: donnees.tauxHoraire }),
-        ...(donnees.coefficient === undefined ? {} : { coefficient: donnees.coefficient }),
-      },
-      ...avecRelations,
-    });
+    const mission =
+      await this.prisma.mission.update({
+        where: { id },
+        data: {
+          ...(donnees.lieuId
+            ? { lieuId: donnees.lieuId }
+            : {}),
+
+          ...(donnees.qualificationRequiseId
+            ? {
+                qualificationRequiseId:
+                  donnees.qualificationRequiseId,
+              }
+            : {}),
+
+          ...(donnees.dateDebut
+            ? {
+                dateDebut: new Date(
+                  donnees.dateDebut,
+                ),
+              }
+            : {}),
+
+          ...(donnees.dateFin
+            ? {
+                dateFin: new Date(
+                  donnees.dateFin,
+                ),
+              }
+            : {}),
+
+          ...(heureDebut
+            ? { heureDebut }
+            : {}),
+
+          ...(heureFin
+            ? { heureFin }
+            : {}),
+
+          ...(heureDebut && heureFin
+            ? {
+                travailNuit:
+                  franchitMinuit(
+                    heureDebut,
+                    heureFin,
+                  ),
+              }
+            : {}),
+
+          ...(donnees.motifRecours
+            ? {
+                motifRecours:
+                  donnees.motifRecours,
+              }
+            : {}),
+
+          ...(donnees.description === undefined
+            ? {}
+            : {
+                description:
+                  donnees.description,
+              }),
+
+          ...(donnees.tauxHoraire === undefined
+            ? {}
+            : {
+                tauxHoraire:
+                  donnees.tauxHoraire,
+              }),
+
+          ...(donnees.coefficient === undefined
+            ? {}
+            : {
+                coefficient:
+                  donnees.coefficient,
+              }),
+        },
+        ...avecRelations,
+      });
 
     return this.resume(mission);
   }
 
-  async annuler(id: string, session: UtilisateurSession): Promise<MissionResume> {
-    const existante = await this.prisma.mission.findFirst({
-      where: { AND: [{ id }, await porteeLecture(session, this.prisma)] },
-      select: { id: true, statut: true },
-    });
+  async annuler(
+    id: string,
+    session: UtilisateurSession,
+  ): Promise<MissionResume> {
+    const existante =
+      await this.prisma.mission.findFirst({
+        where: {
+          AND: [
+            { id },
+            await porteeLecture(
+              session,
+              this.prisma,
+            ),
+          ],
+        },
+        select: {
+          id: true,
+          statut: true,
+        },
+      });
 
     if (!existante) {
-      throw new NotFoundException('Mission introuvable');
+      throw new NotFoundException(
+        'Mission introuvable',
+      );
     }
 
     if (existante.statut === 'TERMINEE') {
-      throw new ForbiddenException('Une mission terminee ne s annule pas');
+      throw new ForbiddenException(
+        'Une mission terminee ne s annule pas',
+      );
     }
 
-    const [mission] = await this.prisma.$transaction([
-      this.prisma.mission.update({
-        where: { id },
-        data: { statut: 'ANNULEE', candidatRetenuId: null },
-        ...avecRelations,
-      }),
-      // Les candidatures encore en attente deviennent caduques : les laisser
-      // ouvertes ferait attendre des candidats pour rien.
-      this.prisma.proposition.updateMany({
-        where: { missionId: id, statut: { in: ['ENVOYEE', 'ACCEPTEE_CANDIDAT'] } },
-        data: { statut: 'EXPIREE', repondueLe: new Date() },
-      }),
-    ]);
+    const [mission] =
+      await this.prisma.$transaction([
+        this.prisma.mission.update({
+          where: { id },
+          data: {
+            statut: 'ANNULEE',
+            candidatRetenuId: null,
+          },
+          ...avecRelations,
+        }),
+
+        // Les candidatures encore en attente deviennent caduques : les laisser
+        // ouvertes ferait attendre des candidats pour rien.
+        this.prisma.proposition.updateMany({
+          where: {
+            missionId: id,
+            statut: {
+              in: [
+                'ENVOYEE',
+                'ACCEPTEE_CANDIDAT',
+              ],
+            },
+          },
+          data: {
+            statut: 'EXPIREE',
+            repondueLe: new Date(),
+          },
+        }),
+      ]);
 
     return this.resume(mission);
   }
@@ -608,27 +922,93 @@ export class MissionsService {
   /**
    * Compteurs du tableau de bord.
    *
-   * Trois agregats en une transaction plutot que trois allers-retours : la page
+   * Quatre agregats en une transaction plutot que quatre allers-retours : la page
    * d'accueil de l'etablissement les affiche tous ensemble.
    */
-  async resumeChiffre(session: UtilisateurSession): Promise<ResumeMissions> {
-    const portee = await porteeLecture(session, this.prisma);
+  async resumeChiffre(
+    session: UtilisateurSession,
+  ): Promise<ResumeMissions> {
+    const portee =
+      await porteeLecture(
+        session,
+        this.prisma,
+      );
 
-    const [actives, candidaturesRecues, aConfirmer] = await this.prisma.$transaction([
-      this.prisma.mission.count({
-        where: { AND: [portee, { statut: { in: [...ETATS_OUVERTS, ...ETATS_ENGAGES] } }] },
-      }),
-      this.prisma.proposition.count({
-        where: { mission: portee, statut: { in: ['ENVOYEE', 'ACCEPTEE_CANDIDAT'] } },
-      }),
+    const [
+      actives,
+      annoncesEnLigne,
+      candidaturesRecues,
+      aConfirmer,
+    ] = await this.prisma.$transaction([
       this.prisma.mission.count({
         where: {
-          AND: [portee, { statut: { in: [...ETATS_OUVERTS] } }],
-          propositions: { some: { statut: 'ACCEPTEE_CANDIDAT' } },
+          AND: [
+            portee,
+            {
+              statut: {
+                in: [
+                  ...ETATS_OUVERTS,
+                  ...ETATS_ENGAGES,
+                ],
+              },
+            },
+          ],
+        },
+      }),
+
+      // Une annonce est comptabilisee si elle a ete publiee
+      // au moins une fois, meme si son statut actuel a change.
+      this.prisma.mission.count({
+        where: {
+          AND: [
+            portee,
+            {
+              evenements: {
+                some: {
+                  type: 'MISSION_PUBLIEE',
+                },
+              },
+            },
+          ],
+        },
+      }),
+
+      this.prisma.proposition.count({
+        where: {
+          mission: portee,
+          statut: {
+            in: [
+              'ENVOYEE',
+              'ACCEPTEE_CANDIDAT',
+            ],
+          },
+        },
+      }),
+
+      this.prisma.mission.count({
+        where: {
+          AND: [
+            portee,
+            {
+              statut: {
+                in: [...ETATS_OUVERTS],
+              },
+            },
+          ],
+          propositions: {
+            some: {
+              statut: 'ACCEPTEE_CANDIDAT',
+            },
+          },
         },
       }),
     ]);
 
-    return { actives, candidaturesRecues, aConfirmer };
+    return {
+      actives,
+      annoncesEnLigne,
+      candidaturesRecues,
+      aConfirmer,
+    };
   }
 }

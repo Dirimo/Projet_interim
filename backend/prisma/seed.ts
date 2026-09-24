@@ -1,15 +1,10 @@
-import { hash } from '@node-rs/argon2';
-import { PrismaClient, type RoleUtilisateur } from '@prisma/client';
+import { PrismaClient, RoleUtilisateur } from '@prisma/client';
+import { hash } from 'bcrypt';
 
 const prisma = new PrismaClient();
 
-// Comptes de demonstration : le mot de passe est volontairement le meme pour
-// tous, et volontairement inutilisable ailleurs qu'en local.
 const MOT_DE_PASSE_DEMO = 'Releve2026!';
 
-// Le code ROME rattache chaque diplome au marche observe sur France Travail :
-// J1501 pour les soins, K1302 pour l'assistance aux adultes, K1304 pour les
-// services domestiques. Ce sont les trois codes que la collecte importe.
 const QUALIFICATIONS: { code: string; libelle: string; romeCode: string }[] = [
   {
     code: 'DEAES',
@@ -65,12 +60,8 @@ async function main(): Promise<void> {
     });
   }
 
-  // Un premier SAAD, oriente accompagnement du handicap : deux beneficiaires
-  // suivis, des interventions longues et regulieres.
   const saadTilleuls = await prisma.client.upsert({
     where: { siret: '48291736500017' },
-    // Un `update` vide ne converge jamais : une fiche de demonstration renommee
-    // garderait son ancien nom a chaque reseed.
     update: {
       raisonSociale: 'Les Tilleuls (SAAD)',
       type: 'SAAD',
@@ -84,9 +75,6 @@ async function main(): Promise<void> {
       raisonSociale: 'Les Tilleuls (SAAD)',
       siret: '48291736500017',
       type: 'SAAD',
-      // Structure autorisee par le conseil departemental : elle releve alors de
-      // l'article L. 312-1 du CASF, ce qui declenche la duree minimale
-      // d'exercice prealable a l'interim pour ses mises a disposition.
       statutReglementaire: 'AUTORISE_SAD_ESMS',
       numeroFiness: '440001234',
       arreteReference: 'ARR-2024-0117',
@@ -100,11 +88,6 @@ async function main(): Promise<void> {
           {
             type: 'DOMICILE_BENEFICIAIRE',
             libelle: 'Domicile - secteur Hauts-Paves',
-            // Adresses reelles, et coordonnees qui leur correspondent vraiment.
-            // Le seed les pose en dur pour rester deterministe et jouable sans
-            // reseau — mais elles doivent rester geocodables, sinon
-            // `pnpm cli geocoder` echouerait sur le jeu de demonstration et on
-            // croirait a une panne du service.
             adresse: '12 rue de Strasbourg',
             codePostal: '44000',
             ville: 'Nantes',
@@ -118,7 +101,6 @@ async function main(): Promise<void> {
     },
   });
 
-  // Un second SAAD : le client signe, l'intervention a lieu chez le beneficiaire.
   const saad = await prisma.client.upsert({
     where: { siret: '51938274600021' },
     update: {
@@ -132,8 +114,6 @@ async function main(): Promise<void> {
       raisonSociale: 'Domicile Plus (SAAD)',
       siret: '51938274600021',
       type: 'SAAD',
-      // Simple declaration : l'autre regime, pour que la demonstration montre
-      // les deux justificatifs plutot que deux fois le meme.
       statutReglementaire: 'DECLARE_SAP',
       numeroSap: 'SAP519382746',
       conventionCollective: 'Branche aide a domicile (BAD) - a confirmer avec la paie',
@@ -183,11 +163,6 @@ async function main(): Promise<void> {
     permisB: boolean;
     vehicule: boolean;
     qualifications: string[];
-    /**
-     * Parcours professionnel. Les durees sont volontairement contrastees :
-     * sans cela, le classement rendrait quatre scores identiques et ne
-     * montrerait pas ce que le bareme sait faire.
-     */
     experiences: {
       employeur: string;
       intitule: string;
@@ -212,8 +187,6 @@ async function main(): Promise<void> {
       permisB: true,
       vehicule: true,
       qualifications: ['ADVF', 'AVS'],
-      // Le profil le plus solide du jeu : huit ans de terrain, au-dela du
-      // plafond de cinq ans, donc au maximum de la composante.
       experiences: [
         {
           employeur: 'ADMR Loire-Atlantique',
@@ -240,9 +213,6 @@ async function main(): Promise<void> {
       permisB: false,
       vehicule: false,
       qualifications: ['DEAS'],
-      // Un poste declare mais pas encore controle par l'agence : il s'affiche
-      // sur la fiche et ne rapporte rien. C'est le cas qui rend l'invariant
-      // visible dans la demo.
       experiences: [
         {
           employeur: 'EHPAD Bel Air',
@@ -256,7 +226,6 @@ async function main(): Promise<void> {
       ],
     },
     {
-      // Le cas qui justifie de ne pas dupliquer la fiche.
       email: 'sophie.marchand@example.org',
       nom: 'Marchand',
       prenom: 'Sophie',
@@ -270,8 +239,6 @@ async function main(): Promise<void> {
       permisB: true,
       vehicule: true,
       qualifications: ['DEAES'],
-      // Une reconversion : trois ans de caisse, puis deux ans dans le metier.
-      // Le hors-referentiel compte pour moitie.
       experiences: [
         {
           employeur: 'Supermarche Coeur de Reze',
@@ -307,8 +274,6 @@ async function main(): Promise<void> {
       permisB: true,
       vehicule: false,
       qualifications: ['ASH'],
-      // Aucune experience : le profil eligible qui marque zero sur la
-      // composante la plus lourde. C'est l'etat de depart de toute inscription.
       experiences: [],
     },
   ];
@@ -333,9 +298,6 @@ async function main(): Promise<void> {
       },
     });
 
-    // Les experiences sont reecrites a chaque seed : elles n'ont pas de cle
-    // naturelle sur laquelle poser un upsert, et les laisser s'accumuler
-    // fausserait le classement au deuxieme passage.
     await prisma.experienceProfessionnelle.deleteMany({ where: { candidatId: enregistre.id } });
 
     for (const poste of experiences) {
@@ -378,12 +340,11 @@ async function main(): Promise<void> {
     }
   }
 
-  // --- comptes de demonstration, un par role
   const sophie = await prisma.candidat.findUniqueOrThrow({
     where: { email: 'sophie.marchand@example.org' },
   });
 
-  const empreinte = await hash(MOT_DE_PASSE_DEMO);
+  const empreinte = await hash(MOT_DE_PASSE_DEMO, 10);
 
   const comptes: {
     email: string;
@@ -394,19 +355,11 @@ async function main(): Promise<void> {
   }[] = [
     { email: 'admin@releve.example', role: 'ADMIN_AGENCE', agenceId: agence.id },
     { email: 'charge@releve.example', role: 'CHARGE_RECRUTEMENT', agenceId: agence.id },
-    // Prepares pour les lots 2 et 3 : les espaces client et candidat n'ont pas
-    // encore d'ecran, mais le jeton porte deja le bon rattachement.
     { email: 'secteur@les-tilleuls.example', role: 'CLIENT', clientId: saadTilleuls.id },
     { email: 'sophie.marchand@example.org', role: 'CANDIDAT', candidatId: sophie.id },
   ];
 
   for (const compte of comptes) {
-    // On reecrit le mot de passe a chaque seed : en dev, relancer `db:seed` est
-    // la facon la plus simple de recuperer un acces.
-    // `emailVerifieLe` est pose d'office : ces comptes viennent du seed, pas du
-    // site public. La confirmation d'adresse atteste que celui qui s'inscrit
-    // possede l'adresse qu'il declare — un compte de demonstration n'a personne
-    // a qui le prouver, et sans cette ligne la demo serait inconnectable.
     await prisma.utilisateur.upsert({
       where: { email: compte.email },
       update: {
@@ -419,7 +372,6 @@ async function main(): Promise<void> {
     });
   }
 
-  // Deux besoins ouverts, chez deux SAAD differents.
   const deaes = await prisma.qualification.findUniqueOrThrow({ where: { code: 'DEAES' } });
   const advf = await prisma.qualification.findUniqueOrThrow({ where: { code: 'ADVF' } });
   const lieuTilleuls = await prisma.lieuIntervention.findFirstOrThrow({
@@ -471,10 +423,6 @@ async function main(): Promise<void> {
     },
   });
 
-  // Le seed pose latitude / longitude en dur, pour rester deterministe et
-  // jouable sans reseau. La colonne PostGIS, elle, n'est ecrite qu'en SQL brut :
-  // sans cette mise en accord, l'index spatial designerait le vide alors que le
-  // bareme, lui, trouverait des coordonnees.
   for (const table of ['candidat', 'lieu_intervention']) {
     await prisma.$executeRawUnsafe(`
       UPDATE "${table}"
@@ -495,13 +443,13 @@ async function main(): Promise<void> {
 
   console.log('Jeu de donnees en place :', compteurs);
   console.log(`Comptes de demonstration : mot de passe "${MOT_DE_PASSE_DEMO}"`);
-}
+} // 👈 CETTE ACCOLADE MANQUAIT
 
 main()
   .catch((erreur) => {
     console.error(erreur);
-    process.exitCode = 1;
+    throw erreur;
   })
   .finally(() => {
     void prisma.$disconnect();
-  });
+  }); 

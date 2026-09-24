@@ -23,17 +23,6 @@ export class InscriptionsService {
     private readonly geocodage: GeocodageService,
   ) {}
 
-  /**
-   * Agence a laquelle rattacher une inscription venue du site public.
-   *
-   * Le visiteur ne choisit pas son agence : il ne sait pas comment le groupe
-   * est decoupe, et le lui demander ferait porter une erreur de saisie sur le
-   * cloisonnement. Un deploiement mono-agence prend la seule qui existe ;
-   * `AGENCE_PAR_DEFAUT_ID` tranche si le groupe en exploite plusieurs.
-   *
-   * TODO(lot 2) : router selon le departement du demandeur plutot que par
-   * configuration, quand les secteurs des agences seront en base.
-   */
   private async agenceDInscription(): Promise<string> {
     const configuree = this.config.get<string>('AGENCE_PAR_DEFAUT_ID');
 
@@ -56,14 +45,12 @@ export class InscriptionsService {
     });
 
     if (!premiere) {
-      // 503 et non 500 : la base est saine, c'est le parametrage qui manque.
       throw new ServiceUnavailableException('Aucune agence ne peut recevoir les inscriptions');
     }
 
     return premiere.id;
   }
 
-  /** L'adresse sert d'identifiant de connexion : elle ne peut pas etre partagee. */
   private async exigerEmailLibre(email: string): Promise<void> {
     const existant = await this.prisma.utilisateur.findUnique({
       where: { email },
@@ -76,13 +63,7 @@ export class InscriptionsService {
   }
 
   /**
-   * Inscription d'un interimaire.
-   *
-   * Deux verrous distincts, qu'il ne faut pas confondre. Le statut
-   * `EN_VERIFICATION` dit que l'agence n'a pas encore vu les diplomes : se
-   * declarer aide-soignant ne suffit pas a etre envoye chez quelqu'un. La
-   * confirmation d'adresse, elle, ne dit rien des competences — seulement que
-   * la personne qui s'inscrit possede l'adresse qu'elle declare.
+   * Inscription d'un interimaire (Candidat).
    */
   async interimaire(donnees: InscriptionInterimaire): Promise<ReponseInscription> {
     await this.exigerEmailLibre(donnees.compte.email);
@@ -125,16 +106,11 @@ export class InscriptionsService {
       });
 
       this.logger.log(`Inscription interimaire : ${donnees.compte.email}`);
-
       compte = utilisateur;
     } catch (cause) {
       throw this.traduireConflit(cause, 'email', 'Une fiche existe deja pour cette adresse e-mail');
     }
 
-    // Hors transaction, et deliberement : un appel reseau tenu ouvert le temps
-    // d'une transaction immobilise une connexion de la base, et une BAN lente
-    // ferait echouer des inscriptions parfaitement valides. La fiche est deja
-    // ecrite ; il ne lui manque qu'un point, que `releve geocoder` reprendra.
     await this.geocodage.situer('candidat', ficheId!, donnees.interimaire);
 
     await this.verification.emettre({
@@ -147,11 +123,56 @@ export class InscriptionsService {
   }
 
   /**
-   * Vue que le compte a de lui-meme.
-   *
-   * Le back-office n'y lit rien : son espace, ce sont le vivier et les
-   * referentiels. Les deux profils externes, eux, n'ont que cela.
+   * Inscription d'un établissement (Client / Entreprise).
    */
+  async client(donnees: any): Promise<ReponseInscription> {
+    await this.exigerEmailLibre(donnees.compte.email);
+
+    const agenceId = await this.agenceDInscription();
+    const empreinte = await hacherMotDePasse(donnees.compte.motDePasse);
+    let compte: { id: string; email: string };
+
+    try {
+      const utilisateur = await this.prisma.$transaction(async (tx) => {
+        const nouveauClient = await tx.client.create({
+          data: {
+            agenceId,
+            raisonSociale: donnees.client?.raisonSociale || donnees.client?.nom || 'Établissement',
+            siret: donnees.client?.siret || '',
+            type: donnees.client?.type || 'EHPAD',
+            contactNom: donnees.client?.contactNom || donnees.client?.prenom || 'Contact',
+            contactEmail: donnees.compte.email,
+            contactTel: donnees.client?.telephone || '',
+            actif: false,
+          },
+          select: { id: true },
+        });
+
+        return tx.utilisateur.create({
+          data: {
+            email: donnees.compte.email,
+            motDePasse: empreinte,
+            role: 'CLIENT',
+            clientId: nouveauClient.id,
+          },
+        });
+      });
+
+      this.logger.log(`Inscription client/entreprise : ${donnees.compte.email}`);
+      compte = utilisateur;
+    } catch (cause) {
+      throw this.traduireConflit(cause, 'email', 'Une fiche existe deja pour cette adresse e-mail');
+    }
+
+    await this.verification.emettre({
+      id: compte.id,
+      email: compte.email,
+      prenom: donnees.client?.contactNom || 'Responsable',
+    });
+
+    return { email: compte.email, verificationRequise: true };
+  }
+
   async espace(session: UtilisateurSession): Promise<EspacePersonnel> {
     if (session.clientId) {
       const client = await this.prisma.client.findUniqueOrThrow({
@@ -213,12 +234,6 @@ export class InscriptionsService {
     return { type: 'AGENCE' };
   }
 
-  /**
-   * Une contrainte d'unicite qui saute pendant la transaction devient un 409
-   * lisible plutot qu'une 500. Le cas se produit quand deux inscriptions
-   * partent en meme temps avec le meme SIRET : la verification prealable passe
-   * pour les deux, c'est la base qui tranche.
-   */
   private traduireConflit(cause: unknown, champ: string, message: string): unknown {
     if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === 'P2002') {
       const cibles = cause.meta?.target;

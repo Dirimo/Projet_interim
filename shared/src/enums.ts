@@ -24,7 +24,7 @@ export const STATUT_CANDIDAT_LIBELLES: Record<StatutCandidat, string> = {
 };
 
 /**
- * Un seul type de client : le SAAD.
+ * Deux types de client : le SAAD et l'etablissement.
  *
  * L'agence ne place que dans des services d'aide et d'accompagnement a
  * domicile. L'enum est conserve plutot que supprime parce qu'il porte une
@@ -32,11 +32,12 @@ export const STATUT_CANDIDAT_LIBELLES: Record<StatutCandidat, string> = {
  * L. 312-1 du CASF, donc la duree minimale d'exercice prealable a l'interim
  * s'applique a ses mises a disposition.
  */
-export const typeClientSchema = z.enum(['SAAD']);
+export const typeClientSchema = z.enum(['SAAD', 'ETABLISSEMENT']);
 export type TypeClient = z.infer<typeof typeClientSchema>;
 
 export const TYPE_CLIENT_LIBELLES: Record<TypeClient, string> = {
   SAAD: "Service d'aide et d'accompagnement a domicile (SAAD)",
+  ETABLISSEMENT: 'Etablissement',
 };
 
 export const typeLieuSchema = z.enum(['DOMICILE_BENEFICIAIRE', 'ETABLISSEMENT']);

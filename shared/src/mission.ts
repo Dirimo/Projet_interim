@@ -138,6 +138,7 @@ export interface MissionDetail extends MissionResume {
 /** Compteurs du tableau de bord, calcules en une requete. */
 export interface ResumeMissions {
   actives: number;
+  annoncesEnLigne: number;
   candidaturesRecues: number;
   aConfirmer: number;
 }

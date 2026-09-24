@@ -2,6 +2,7 @@ packages:
   - backend
   - frontend
   - shared
+  - mobile 
 
 # pnpm bloque les scripts d'installation par defaut : on autorise
 # explicitement ceux dont on a besoin (moteurs Prisma, binaire esbuild).
@@ -10,7 +11,14 @@ allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true
   '@scarf/scarf': false
+  bcrypt: false
   esbuild: true
   prisma: true
   sharp: true
   unrs-resolver: true
+
+minimumReleaseAgeExclude:
+  - '@expo/cli@57.0.25'
+  - '@expo/router-server@57.0.10'
+  - babel-preset-expo@57.0.12
+  - expo@57.0.23

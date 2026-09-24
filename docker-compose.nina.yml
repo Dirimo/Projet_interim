@@ -1,0 +1,21 @@
+services:
+  db-nina:
+    image: postgis/postgis:16-3.4
+    container_name: passerelle-db-nina
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: passerelle
+      POSTGRES_PASSWORD: passerelle
+      POSTGRES_DB: passerelle_nina
+    ports:
+      - '5435:5432'
+    volumes:
+      - db_nina_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U passerelle -d passerelle_nina']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db_nina_data:

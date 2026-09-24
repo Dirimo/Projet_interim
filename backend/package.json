@@ -33,6 +33,7 @@
     "@node-rs/argon2": "^2.2.1",
     "@prisma/client": "^6.0.0",
     "@releve/shared": "workspace:*",
+    "bcrypt": "^6.0.0",
     "commander": "^15.0.0",
     "ioredis": "^6.0.0",
     "nodemailer": "^10.0.9",
